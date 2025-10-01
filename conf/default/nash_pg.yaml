@@ -1,0 +1,13 @@
+defaults:
+  - agent: tic_tac_toe
+  - env: tic_tac_toe
+  - algorithm: nash_pg
+  - logging: tensorboard
+  - _self_
+
+hydra:
+  searchpath:
+    - file://conf/
+
+run_name: "tic_tac_toe/nash_pg/default_run"
+seed: 100

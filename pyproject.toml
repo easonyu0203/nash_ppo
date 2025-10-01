@@ -1,0 +1,18 @@
+[project]
+name = "nash-ppo"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "chex>=0.1.91",
+    "distrax>=0.1.7",
+    "flax>=0.12.0",
+    "hydra-core>=1.3.2",
+    "jax>=0.7.2",
+    "omegaconf>=2.3.0",
+    "orbax>=0.1.9",
+    "tensorboard>=2.20.0",
+    "torch>=2.8.0",
+    "tqdm>=4.67.1",
+]
