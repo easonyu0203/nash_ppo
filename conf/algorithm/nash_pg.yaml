@@ -8,6 +8,5 @@ gae_gamma: 0.95
 num_minibatches: 4
 num_ppo_epoch: 4
 mag_coef: 0.1
-mag_divergence_type: "kl"
-num_inner_update: 1000
+num_inner_update: 100
 num_outer_update: 10

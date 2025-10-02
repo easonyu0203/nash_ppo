@@ -1,38 +1,40 @@
 from agents.base_agent import BaseAgent
+from agents.registry import get_agent_class_from_name, list_registered_agents
+
+# NOTE: Import all agent implementations to trigger registration
 from agents.mlp_agent import MLPAgent
-from enum import Enum
-from typing import Union
+
 import chex
+from omegaconf import DictConfig
 
 
-class RegisteredAgent(Enum):
-    TIC_TAC_TOE = "tic_tac_toe"
-
-
-def create_agent(agent_name: Union[RegisteredAgent, str], key: chex.PRNGKey) -> BaseAgent:
+def create_agent(agent_config: DictConfig, key: chex.PRNGKey) -> BaseAgent:
     """Create an agent instance based on the registered agent name.
-    
+
     Args:
-        agent_name: The registered agent type to create (enum or string)
-        rngs: JAX random number generator state for initialization
-        
+        agent_config: The config object with `agent_name` and key word parameters
+        key: JAX random number generator state for initialization
+
     Returns:
         An instance of the specified agent type
-        
+
     Raises:
         ValueError: If the agent name is not recognized
     """
-    # Convert string to enum if needed
-    if isinstance(agent_name, str):
-        try:
-            agent_name = RegisteredAgent(agent_name)
-        except ValueError:
-            raise ValueError(f"Unknown agent: {agent_name}")
-        
-    if agent_name == RegisteredAgent.TIC_TAC_TOE:
-        return MLPAgent(key, input_dim=9, output_dim=9)
-    else:
-        raise ValueError(f"Unknown agent: {agent_name}")
-    
+    agent_cls = get_agent_class_from_name(agent_config.agent_name)
 
-__all__ = ['BaseAgent', 'RegisteredAgent', 'create_agent']
+    # config dict passing as key word arguments
+    config_dict = dict(agent_config)
+    config_dict.pop('agent_name', None)
+
+    return agent_cls(key, **config_dict)
+
+
+__all__ = [
+    'BaseAgent',
+    'create_agent',
+    'list_registered_agents'
+]
+
+if __name__ == "__main__":
+    print(list_registered_agents())

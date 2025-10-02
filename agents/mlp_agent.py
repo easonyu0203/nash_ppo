@@ -1,6 +1,7 @@
 from typing import Optional, Tuple
 from flax import nnx
 from agents import BaseAgent
+from agents.registry import register_agent
 from agents.utils import layer_init
 import jax
 import jax.numpy as jnp
@@ -27,6 +28,7 @@ class FeatureExtractor(nnx.Module):
         result: chex.Array = self.mlp(flattened)
         return result
 
+@register_agent("mlp")
 class MLPAgent(BaseAgent):
 
     def __init__(self, key: chex.PRNGKey, input_dim: int, output_dim: int, mlp_dim: int = 64):

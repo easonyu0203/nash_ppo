@@ -1,1 +1,4 @@
-agent_name: "tic_tac_toe"
+agent_name: "mlp"
+input_dim: 9
+output_dim: 9
+mlp_dim: 64

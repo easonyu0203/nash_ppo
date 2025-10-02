@@ -16,7 +16,7 @@ class UpdateState:
     metrics: nnx.MultiMetric
     key: chex.PRNGKey
 
-@partial(nnx.jit, static_argnames=('num_minibatches', 'num_ppo_epoch', 'only_use_player0_experience', 'mag_divergence_type'))
+@partial(nnx.jit, static_argnames=('num_minibatches', 'num_ppo_epoch', 'only_use_player0_experience'))
 def update_agent(
     agent: BaseAgent,
     mag_agent: BaseAgent,
@@ -30,7 +30,6 @@ def update_agent(
     num_minibatches: int,
     num_ppo_epoch: int,
     only_use_player0_experience: bool,
-    mag_divergence_type: Literal["kl", "l2"] = "kl",
 ) -> Tuple[BaseAgent, nnx.Optimizer, nnx.MultiMetric]:
     """
     Updates agent parameters using PPO with optional magnetic regularization.
@@ -104,12 +103,7 @@ def update_agent(
         mag_loss, mag_kl = 0, 0
         if mag_agent is not None:
             mag_dists = mag_agent.get_action_distribution(dataset.observation, dataset.action_mask)
-            if mag_divergence_type == "kl":
-                mag_kl = masked_mean(dists.kl_divergence(mag_dists), dataset.valid_mask)
-            elif mag_divergence_type == "l2":
-                probs = dists.probs
-                mag_probs = mag_dists.probs
-                mag_kl = 0.5 * masked_mean(jnp.sum(jnp.square(probs - mag_probs), axis=-1), dataset.valid_mask)
+            mag_kl = masked_mean(dists.kl_divergence(mag_dists), dataset.valid_mask)
             mag_loss = mag_kl
 
         # total actor loss

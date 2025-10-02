@@ -83,7 +83,6 @@ def single_training_step(
         key = update_key,
         ent_coef = config.algorithm.ent_coef,
         mag_coef = config.algorithm.mag_coef,
-        mag_divergence_type = config.algorithm.mag_divergence_type,
         clip_eps = config.algorithm.clip_eps,
         num_minibatches = config.algorithm.num_minibatches,
         num_ppo_epoch = config.algorithm.num_ppo_epoch,
@@ -141,7 +140,7 @@ def main(config: DictConfig):
 
     # setup agent
     key, agent_key = jax.random.split(key)
-    agent = create_agent(config.agent.agent_name, key=agent_key)
+    agent = create_agent(config.agent, key=agent_key)
 
     # setup optimizer & metrics
     optimizer = nnx.Optimizer(agent, optax.adamw(config.algorithm.lr, eps=1e-5), wrt=nnx.Param)
