@@ -1,38 +1,35 @@
 from typing import Tuple
-from functools import partial
+from functools import cached_property
 import chex
 import jax
 
-import envs.mytypes as env_types
+from envs.mytypes import BaseEnv, EnvState, TimeStep, Action
+from envs.myspaces import Space
 
-class AutoResetWrapper(env_types.BaseEnv):
+class AutoResetWrapper(BaseEnv):
     """
     Auto reset the env, with MODE=SAME_STEP
     """
 
-    def __init__(self, env: env_types.BaseEnv):
+    def __init__(self, env: BaseEnv):
         self._env = env
 
-    @property
-    def env_name(self) -> str:
-        return self._env.env_name
-
-    @property
+    @cached_property
     def num_agents(self) -> int:
         return self._env.num_agents
 
-    @property
-    def action_space(self) -> env_types.Space:
+    @cached_property
+    def action_space(self) -> Space:
         return self._env.action_space
 
-    @property
-    def observation_space(self) -> env_types.Space:
+    @cached_property
+    def observation_space(self) -> Space:
         return self._env.observation_space
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[env_types.EnvState, env_types.TimeStep]:
+    def reset(self, key: chex.PRNGKey) -> Tuple[EnvState, TimeStep]:
         return self._env.reset(key)
 
-    def step(self, state: env_types.EnvState, action: env_types.Action) -> Tuple[env_types.EnvState, env_types.TimeStep]:
+    def step(self, state: EnvState, action: Action) -> Tuple[EnvState, TimeStep]:
         state, timestep = self._env.step(state, action)
 
         state, timestep = jax.lax.cond(
@@ -44,15 +41,15 @@ class AutoResetWrapper(env_types.BaseEnv):
 
         return state, timestep
     
-    def _auto_reset(self, state: env_types.EnvState, timestep: env_types.TimeStep) -> Tuple[env_types.EnvState, env_types.TimeStep]:
+    def _auto_reset(self, state: EnvState, timestep: TimeStep) -> Tuple[EnvState, TimeStep]:
         """auto reset with mode=same_step"""
         new_state, new_timestep = self._env.reset(state.key)
 
-        return new_state, env_types.TimeStep(
+        return new_state, TimeStep(
             reward=timestep.reward,
             done=timestep.done,
             observation=new_timestep.observation,
             action_mask=new_timestep.action_mask,
-            current_player=new_timestep.current_player,
+            step_cnt=new_timestep.step_cnt,
             info=timestep.info, # NOTE: we use terminated step info, this mean the new episode first step info is gone
         )

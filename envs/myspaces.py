@@ -21,7 +21,6 @@ class Space(object):
 class Discrete(Space):
 	"""
 	Minimal jittable class for discrete gymnax spaces.
-	TODO: For now this is a 1d space. Make composable for multi-discrete.
 	"""
 
 	def __init__(self, num_categories: int, dtype=jnp.int32):
@@ -43,50 +42,9 @@ class Discrete(Space):
 		range_cond = jnp.logical_and(x >= 0, x < self.n)
 		return bool(range_cond)
 
-
-class MultiDiscrete(Space):
-    """
-    Minimal jittable class for multi-discrete gymnax spaces.
-    """
-
-    def __init__(self, num_categories: Sequence[int], dtype=jnp.int32):
-        """Num categories is the number of cat actions for each dim, [2,2,2]=2 actions x 3 dim"""
-        self.num_categories = jnp.array(num_categories)
-        self.shape = (len(num_categories),)
-        self.dtype = dtype
-
-    def sample(self, rng: chex.PRNGKey) -> Observation:
-        """Sample random action uniformly from set of categorical choices."""
-        if jnp.issubdtype(self.dtype, jnp.integer) or self.dtype == jnp.bool_:
-            # Use int32 for sampling, then cast to target dtype
-            samples = jax.random.randint(
-                rng, 
-                shape=self.shape, 
-                minval=0, 
-                maxval=self.num_categories,
-                dtype=jnp.int32
-            )
-            return samples.astype(self.dtype)
-        else:
-            # For other dtypes, use the original approach
-            return jax.random.randint(
-                rng, 
-                shape=self.shape, 
-                minval=0, 
-                maxval=self.num_categories,
-                dtype=self.dtype
-            )
-
-    def contains(self, x: chex.Numeric) -> bool:
-        """Check whether specific object is within space."""
-        range_cond = jnp.logical_and(x >= 0, x < self.num_categories)
-        return bool(jnp.all(range_cond))
-
-
 class Box(Space):
 	"""
 	Minimal jittable class for array-shaped gymnax spaces.
-	TODO: Add unboundedness - sampling from other distributions, etc.
 	"""
 	def __init__(
 		self,
