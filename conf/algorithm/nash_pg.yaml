@@ -1,12 +1,12 @@
 lr: 3e-4
 ent_coef: 0.05
 clip_eps: 0.2
-num_envs: 8
+num_envs: 32
 num_steps: 128
-gamma: 1.0
+gamma: 0.99
 gae_gamma: 0.95
 num_minibatches: 4
 num_ppo_epoch: 4
-mag_coef: 0.1
-num_inner_update: 100
+mag_coef: 0.2
+num_inner_update: 200
 num_outer_update: 10

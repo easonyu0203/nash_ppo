@@ -14,7 +14,8 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["JAX_PLATFORMS"] = "cpu"
 
 # Suppress verbose Orbax checkpoint logging
-logging.getLogger('absl').setLevel(logging.WARNING)
+logging.getLogger('absl').setLevel(logging.ERROR)
+logging.getLogger('orbax').setLevel(logging.ERROR)
 
 from functools import partial
 from tqdm import tqdm
