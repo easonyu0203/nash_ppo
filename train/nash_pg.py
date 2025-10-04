@@ -1,6 +1,17 @@
 """
 Training script for simultaneous update self-play
 
+Usage:
+    JAX_PLATFORMS=cpu uv run train/nash_pg.py \
+                        algorithm.num_inner_update=200 \
+                        algorithm.num_outer_update=100 \
+                        logging.save_interval=2000
+    
+    CUDA_VISIBLE_DEVICES=0 uv run train/nash_pg.py \
+                            algorithm.num_inner_update=200 \
+                            algorithm.num_outer_update=100 \
+                            logging.save_interval=2000 \
+
 Assumption:
 * Action space is Discrete
 * Action space and Observation space are same for all agents
@@ -11,7 +22,6 @@ from pathlib import Path
 from typing import Any, Optional, Tuple
 import logging
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["JAX_PLATFORMS"] = "cpu"
 
 # Suppress verbose Orbax checkpoint logging
 logging.getLogger('absl').setLevel(logging.ERROR)
