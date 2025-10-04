@@ -5,8 +5,9 @@ import jax
 
 from envs.mytypes import BaseEnv, EnvState, TimeStep, Action
 from envs.myspaces import Space
+from envs.wrappers.wrapper import Wrapper
 
-class AutoResetWrapper(BaseEnv):
+class AutoResetWrapper(Wrapper):
     """
     Auto reset the env, with MODE=SAME_STEP
     """
