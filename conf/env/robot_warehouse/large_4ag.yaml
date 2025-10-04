@@ -1,0 +1,7 @@
+env_name: robot_warehouse
+column_height: 8
+shelf_rows: 3
+shelf_columns: 5
+num_agents: 4
+sensor_range: 1
+request_queue_size: 4
