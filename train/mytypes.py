@@ -6,34 +6,37 @@ import envs.mytypes as env_types
 class Transition:
     """
     Transition data collected during trajectory rollout.
-    
+
     Contains raw environment interactions and agent outputs.
     Shape: (num_envs, num_steps, ...)
+
+    Note: All agents act simultaneously each timestep.
+    - action, value, log_prob: shape (num_agents,)
+    - reward: shape (num_agents,)
+    - observation, action_mask: shape (num_agents, ...)
     """
     is_new_eps: chex.Array      # bool, episode boundaries
-    action: env_types.Action    # agent actions
-    value: chex.Array          # critic value estimates
-    reward: chex.Array         # environment rewards per agent
-    log_prob: chex.Array       # action log probabilities
-    observation: env_types.Observation  # environment observations
-    action_mask: chex.Array    # valid action masks
-    current_player: chex.Array # which agent is acting
+    action: chex.Array          # agent actions, shape (num_agents,)
+    value: chex.Array           # critic value estimates, shape (num_agents,)
+    reward: chex.Array          # environment rewards per agent, shape (num_agents,)
+    log_prob: chex.Array        # action log probabilities, shape (num_agents,)
+    observation: env_types.Observation  # environment observations, shape (num_agents, ...)
+    action_mask: chex.Array     # valid action masks, shape (num_agents, ...)
 
 @chex.dataclass
 class Dataset:
     """
     Processed training dataset from transitions.
-    
+
     Includes computed advantages and target values for training.
-    Shape: (num_envs * num_steps, ...)
+    Shape: (num_envs * num_steps * num_agents, ...)
+
+    Note: Flattened across all agents for batch training.
     """
-    action: env_types.Action    # agent actions
-    value: chex.Array          # critic value estimates
-    log_prob: chex.Array       # action log probabilities
+    action: chex.Array          # agent actions
+    value: chex.Array           # critic value estimates
+    log_prob: chex.Array        # action log probabilities
     observation: env_types.Observation  # environment observations
-    action_mask: chex.Array    # valid action masks
-    current_player: chex.Array # which agent is acting
-    advantage: chex.Array      # GAE advantages
-    target_value: chex.Array   # critic training targets
-    valid_mask: chex.Array     # bool, valid training samples
-    log_env_reach_prob: chex.Array # log of environment reach probability for each state
+    action_mask: chex.Array     # valid action masks
+    advantage: chex.Array       # GAE advantages
+    target_value: chex.Array    # critic training targets

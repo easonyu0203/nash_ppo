@@ -1,6 +1,6 @@
 defaults:
-  - agent: tic_tac_toe
-  - env: tic_tac_toe
+  - agent: robot_warehouse
+  - env: robot_warehouse/tiny_2ag
   - algorithm: nash_pg
   - logging: tensorboard
   - _self_
@@ -9,5 +9,5 @@ hydra:
   searchpath:
     - file://conf/
 
-run_name: "tic_tac_toe/nash_pg/default_run"
+run_name: "robot_warehouse/nash_pg/default_run"
 seed: 100

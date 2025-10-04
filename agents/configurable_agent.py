@@ -63,7 +63,7 @@ class ConfigurableAgent:
         Raises:
             ValueError: If the agent class is not registered
         """
-        from agents.registry import get_agent_name_from_class
+        from agents import get_agent_name_from_class
         return get_agent_name_from_class(cls)
 
     def get_config(self) -> Dict[str, Any]:

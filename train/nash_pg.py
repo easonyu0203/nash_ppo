@@ -86,7 +86,6 @@ def single_training_step(
         clip_eps = config.algorithm.clip_eps,
         num_minibatches = config.algorithm.num_minibatches,
         num_ppo_epoch = config.algorithm.num_ppo_epoch,
-        only_use_player0_experience = False,
     )
 
     return learner_state, None
@@ -133,7 +132,7 @@ def main(config: DictConfig):
     key = jax.random.key(config.seed)
 
     # setup env
-    env = create_env(config.env.env_name)
+    env = create_env(config.env)
     key, init_key = jax.random.split(key)
     init_keys = jax.random.split(init_key, config.algorithm.num_envs)
     env_state, init_timestep = jax.vmap(env.reset)(init_keys) # (num_envs, )
@@ -203,7 +202,6 @@ def main(config: DictConfig):
 
             # update magnet
             learner_state.mag_agent = nnx.clone(learner_state.agent)
-
 
     # close logger
     logger.close()

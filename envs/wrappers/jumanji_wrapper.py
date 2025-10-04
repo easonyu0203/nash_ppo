@@ -1,6 +1,7 @@
 from functools import cached_property
 from typing import Tuple
 import chex
+import jax.numpy as jnp
 from jumanji import specs
 
 from envs.wrappers.wrapper import Wrapper
@@ -62,10 +63,16 @@ class JumanjiWrapper(Wrapper):
 
     def reset(self, key: chex.PRNGKey) -> Tuple[EnvState, TimeStep]:
         state, jumanji_timestep = self._env.reset(key)
+
+        # Broadcast scalar reward to per-agent shape (num_agents,)
+        reward = jumanji_timestep.reward
+        if reward.ndim == 0:  # scalar reward
+            reward = jnp.full((self.num_agents,), reward)
+
         timestep = TimeStep(
             observation=jumanji_timestep.observation.agents_view,
             action_mask=jumanji_timestep.observation.action_mask,
-            reward=jumanji_timestep.reward,
+            reward=reward,
             done=jumanji_timestep.last(),
             step_cnt=jumanji_timestep.observation.step_count,
             info=jumanji_timestep.extras
@@ -76,10 +83,15 @@ class JumanjiWrapper(Wrapper):
     def step(self, state: EnvState, action: Action) -> Tuple[EnvState, TimeStep]:
         state, jumanji_timestep = self._env.step(state, action)
 
+        # Broadcast scalar reward to per-agent shape (num_agents,)
+        reward = jumanji_timestep.reward
+        if reward.ndim == 0:  # scalar reward
+            reward = jnp.full((self.num_agents,), reward)
+
         timestep = TimeStep(
             observation=jumanji_timestep.observation.agents_view,
             action_mask=jumanji_timestep.observation.action_mask,
-            reward=jumanji_timestep.reward,
+            reward=reward,
             done=jumanji_timestep.last(),
             step_cnt=jumanji_timestep.observation.step_count,
             info=jumanji_timestep.extras

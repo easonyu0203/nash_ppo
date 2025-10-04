@@ -1,7 +1,7 @@
 import train.mytypes as train_types
 from agents import BaseAgent
 
-from typing import Any, Literal, Tuple
+from typing import Any, Tuple
 from functools import partial
 
 import jax
@@ -16,7 +16,7 @@ class UpdateState:
     metrics: nnx.MultiMetric
     key: chex.PRNGKey
 
-@partial(nnx.jit, static_argnames=('num_minibatches', 'num_ppo_epoch', 'only_use_player0_experience'))
+@partial(nnx.jit, static_argnames=('num_minibatches', 'num_ppo_epoch'))
 def update_agent(
     agent: BaseAgent,
     mag_agent: BaseAgent,
@@ -29,50 +29,30 @@ def update_agent(
     clip_eps: float,
     num_minibatches: int,
     num_ppo_epoch: int,
-    only_use_player0_experience: bool,
 ) -> Tuple[BaseAgent, nnx.Optimizer, nnx.MultiMetric]:
     """
     Updates agent parameters using PPO with optional magnetic regularization.
-    
+
+    All agents share the same model and all samples are used for training.
+
     Args:
         agent: Agent to update
+        mag_agent: Optional magnetic agent for regularization
         optimizer: Optimizer state
         dataset: Training dataset with advantages and targets, shape (batch_size,)
         metrics: Metrics collector
         key: Random key for shuffling
         ent_coef: Entropy regularization coefficient
-        mag_coef: Magnetic regularization coefficient  
+        mag_coef: Magnetic regularization coefficient
         clip_eps: PPO clipping parameter
         num_minibatches: Number of minibatches per epoch
         num_ppo_epoch: Number of training epochs
-        only_use_player0_experience: If True, only train on player 0 data
-        mag_agent: Optional magnetic agent for regularization
     Returns:
         Tuple of (updated_agent, updated_optimizer, updated_metrics)
     """
     batch_size = dataset.advantage.shape[0]
 
     assert batch_size % num_minibatches == 0, f"batch_size ({batch_size}) must be divisible by num_minibatches ({num_minibatches})"
-
-    # mask the dataset if specified
-    if only_use_player0_experience:
-        # only use data where it is valid and is act by player 0
-        dataset.valid_mask = jnp.logical_and(dataset.valid_mask, dataset.current_player == jnp.int32(0))
-
-    def masked_mean(x: chex.Array, mask: chex.Array) -> chex.Numeric:
-        """Compute mean only over valid (masked) samples"""
-        masked_x = x * mask
-        return jnp.sum(masked_x) / jnp.maximum(jnp.sum(mask), 1.0)
-    
-    def masked_var(x: chex.Array, mask: chex.Array) -> chex.Numeric:
-        """Compute variance only over valid (masked) samples"""
-        masked_mean_val = masked_mean(x, mask)
-        masked_variance = jnp.sum(mask * jnp.square(x - masked_mean_val)) / jnp.maximum(jnp.sum(mask), 1.0)
-        return masked_variance
-    
-    def masked_std(x: chex.Array, mask: chex.Array) -> chex.Numeric:
-        """Compute standard deviation only over valid (masked) samples"""
-        return jnp.sqrt(masked_var(x, mask))
     
 
     def calculate_n_log_loss(
@@ -80,13 +60,13 @@ def update_agent(
     ) -> chex.Numeric:
         """calculate loss and log to metrics"""
         dists = agent.get_action_distribution(dataset.observation, dataset.action_mask)
-        
+
         """actor loss"""
         log_prob = dists.log_prob(dataset.action)
-        
-        # normalize advantage using valid mask
-        advantage_mean = masked_mean(dataset.advantage, dataset.valid_mask)
-        advantage_std = masked_std(dataset.advantage, dataset.valid_mask)
+
+        # normalize advantage
+        advantage_mean = jnp.mean(dataset.advantage)
+        advantage_std = jnp.std(dataset.advantage)
         dataset.advantage = (dataset.advantage - advantage_mean) / (advantage_std + 1e-8)
 
         # ppo loss
@@ -94,16 +74,16 @@ def update_agent(
         ratio = jnp.exp(log_ratio)
         ppo_loss1 = ratio * dataset.advantage
         ppo_loss2 = jnp.clip(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * dataset.advantage
-        ppo_loss = -masked_mean(jnp.minimum(ppo_loss1, ppo_loss2), dataset.valid_mask)
+        ppo_loss = -jnp.mean(jnp.minimum(ppo_loss1, ppo_loss2))
 
         # entropy loss
-        entropy_loss = -masked_mean(dists.entropy(), dataset.valid_mask)
+        entropy_loss = -jnp.mean(dists.entropy())
 
         # magnet loss
         mag_loss, mag_kl = 0, 0
         if mag_agent is not None:
             mag_dists = mag_agent.get_action_distribution(dataset.observation, dataset.action_mask)
-            mag_kl = masked_mean(dists.kl_divergence(mag_dists), dataset.valid_mask)
+            mag_kl = jnp.mean(dists.kl_divergence(mag_dists))
             mag_loss = mag_kl
 
         # total actor loss
@@ -114,16 +94,16 @@ def update_agent(
         values_clipped = dataset.value + jnp.clip(values - dataset.value, -clip_eps, clip_eps)
         critic_loss1 = jnp.square(values - dataset.target_value)
         critic_loss2 = jnp.square(values_clipped - dataset.target_value)
-        critic_loss = 0.5 * masked_mean(jnp.maximum(critic_loss1, critic_loss2), dataset.valid_mask)
+        critic_loss = 0.5 * jnp.mean(jnp.maximum(critic_loss1, critic_loss2))
 
         """logging"""
         total_loss = actor_loss + critic_loss
-        approx_kl = masked_mean((ratio - 1) - log_ratio, dataset.valid_mask)
-        clip_frac = masked_mean((jnp.abs(ratio - 1.0) > clip_eps).astype('float32'), dataset.valid_mask)
-        
-        # explained variance calculation with masking
-        target_var = masked_var(dataset.target_value, dataset.valid_mask)
-        residual_var = masked_var(dataset.target_value - values, dataset.valid_mask)
+        approx_kl = jnp.mean((ratio - 1) - log_ratio)
+        clip_frac = jnp.mean((jnp.abs(ratio - 1.0) > clip_eps).astype('float32'))
+
+        # explained variance calculation
+        target_var = jnp.var(dataset.target_value)
+        residual_var = jnp.var(dataset.target_value - values)
         explained_var = jnp.maximum(1 - residual_var / (target_var + 1e-8), jnp.float32(0))
 
         metrics.update(
@@ -146,7 +126,7 @@ def update_agent(
         grad = nnx.grad(calculate_n_log_loss)(carry.agent, batch, carry.metrics)
 
         # update agent, optimizer state (inplace update)
-        carry.optimizer.update(model=carry.agent, grads=grad)
+        carry.optimizer.update(carry.agent, grad)
 
         return carry, 0
 

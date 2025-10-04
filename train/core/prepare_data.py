@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Tuple, Union, List
+from typing import Any, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -10,10 +10,67 @@ import train.mytypes as train_types
 import envs.mytypes as env_types
 from agents import BaseAgent
 
+
+def rearrange_transitions(transitions: train_types.Transition) -> train_types.Transition:
+    """
+    Rearrange transitions from (num_envs, num_steps, num_agents) to (num_envs, num_agents, num_steps).
+
+    This makes the data natural for:
+    - GAE calculation (batch of trajectories over time)
+    - Flattening (num_envs * num_agents becomes batch dimension)
+    """
+    def swap_axes(x: chex.Array) -> chex.Array:
+        """Swap step and agent dimensions: (num_envs, num_steps, num_agents, ...) -> (num_envs, num_agents, num_steps, ...)"""
+        return jnp.swapaxes(x, 1, 2)
+
+    return train_types.Transition(
+        is_new_eps=transitions.is_new_eps,  # (num_envs, num_steps) - no change
+        action=swap_axes(transitions.action),
+        value=swap_axes(transitions.value),
+        reward=swap_axes(transitions.reward),
+        log_prob=swap_axes(transitions.log_prob),
+        observation=jax.tree.map(swap_axes, transitions.observation),
+        action_mask=swap_axes(transitions.action_mask),
+    )
+
+
+def create_dataset(
+    transitions: train_types.Transition,
+    advantages: chex.Array,
+    target_values: chex.Array,
+    batch_size: int
+) -> train_types.Dataset:
+    """
+    Create flattened dataset from rearranged transitions.
+
+    Args:
+        transitions: Rearranged transitions with shape (num_envs, num_agents, num_steps, ...)
+        advantages: Shape (num_envs, num_agents, num_steps)
+        target_values: Shape (num_envs, num_agents, num_steps)
+        batch_size: num_envs * num_agents * num_steps
+
+    Returns:
+        Dataset with all fields flattened to (batch_size, ...)
+    """
+    def flatten_to_batch(x: chex.Array) -> chex.Array:
+        """Flatten (num_envs, num_agents, num_steps, ...) -> (batch_size, ...)"""
+        return x.reshape(batch_size, *x.shape[3:])
+
+    return train_types.Dataset(
+        action=transitions.action.reshape(batch_size),
+        value=transitions.value.reshape(batch_size),
+        log_prob=transitions.log_prob.reshape(batch_size),
+        observation=jax.tree.map(flatten_to_batch, transitions.observation),
+        action_mask=flatten_to_batch(transitions.action_mask),
+        advantage=advantages.reshape(batch_size),
+        target_value=target_values.reshape(batch_size),
+    )
+
+
 @partial(nnx.jit, static_argnames=('env', 'num_envs', 'num_steps'))
 def collect_and_process_trajectories(
     env: env_types.BaseEnv,
-    agent: Union[BaseAgent, List[BaseAgent]],
+    agent: BaseAgent,
     env_state: env_types.EnvState,
     last_timestep: env_types.TimeStep,
     metrics: nnx.MultiMetric,
@@ -22,372 +79,242 @@ def collect_and_process_trajectories(
     num_steps: int,
     gamma: float,
     gae_gamma: float,
-    active_agent_idx: Union[chex.Array, None] = None,
-) -> Union[Tuple[env_types.EnvState, env_types.TimeStep, nnx.MultiMetric, train_types.Dataset],
-           Tuple[env_types.EnvState, env_types.TimeStep, nnx.MultiMetric, train_types.Dataset, chex.Array]]:
+) -> Tuple[env_types.EnvState, env_types.TimeStep, nnx.MultiMetric, train_types.Dataset]:
     """
     Collect trajectories and process them into a training dataset.
-    
+
+    Data flow:
+    1. collect_trajectories → (num_envs, num_steps, num_agents)
+    2. Rearrange to (num_envs, num_agents, num_steps) - natural for GAE and flattening
+    3. calculate_gae → (num_envs, num_agents, num_steps)
+    4. Flatten to (num_envs * num_agents * num_steps,) for training
+
     Args:
         env: Environment instance
-        agent: Single agent or list of agents (length must match num_agents)
+        agent: Shared agent model used by all agents
         env_state: Current environment state with shape (num_envs, ...)
         last_timestep: Last timestep from previous rollout with shape (num_envs, ...)
+        metrics: Metric tracker for logging
         key: JAX random key (scalar)
         num_envs: Number of parallel environments
         num_steps: Number of steps to collect
         gamma: Discount factor for GAE (0 < gamma <= 1)
         gae_gamma: GAE lambda parameter for bias-variance tradeoff (0 < gae_gamma <= 1)
-        
+
     Returns:
-        Tuple of (new_env_state, new_last_timestep, dataset)
-        - new_env_state: Updated environment states, shape (num_envs, ...)
-        - new_last_timestep: Final timestep from rollout, shape (num_envs, ...)
-        - new_metrics: Update metrics hold the rollout metrics
-        - dataset: Training dataset with flattened batch dimension (num_envs * num_steps, ...)
+        Tuple of (new_env_state, new_last_timestep, new_metrics, dataset)
     """
-    # Validate agent input
     num_agents = env.num_agents
-    if isinstance(agent, list):
-        assert len(agent) == num_agents, f"Agent list length {len(agent)} must match num_agents {num_agents}"
-    
-    # Collect trajectories
-    if active_agent_idx is not None:
-        env_state, last_timestep, transitions, active_agent_idx = collect_trajectories(
-            env, agent, env_state, last_timestep, key, num_envs, num_steps, active_agent_idx=active_agent_idx
-        )
-    else:
-        env_state, last_timestep, transitions = collect_trajectories(
-            env, agent, env_state, last_timestep, key, num_envs, num_steps
-        )
-    transitions: train_types.Transition = transitions
-    
-    # Calculate GAE advantages and target values
-    advantages, target_values, valid_mask = calculate_gae(
-        transitions, num_agents, gamma, gae_gamma
+
+    # Step 1: Collect trajectories (num_envs, num_steps, num_agents)
+    env_state, last_timestep, transitions = collect_trajectories(
+        env, agent, env_state, last_timestep, key, num_envs, num_steps
     )
 
-    # calculate log of environment reach probability for each state
-    log_env_reach_probs = calculate_log_env_reach_prob(transitions, num_agents)
+    # Step 2: Rearrange to (num_envs, num_agents, num_steps) for processing
+    transitions = rearrange_transitions(transitions)
 
-    # Flatten to batch dimension (num_envs * num_steps, ...)
-    batch_size = num_envs * num_steps
-    
-    # Create dataset
-    dataset = train_types.Dataset(
-        action=transitions.action.reshape(batch_size, *transitions.action.shape[2:]),
-        value=transitions.value.reshape(batch_size),
-        log_prob=transitions.log_prob.reshape(batch_size),
-        observation=jax.tree.map(lambda x: x.reshape(batch_size, *x.shape[2:]), transitions.observation),
-        action_mask=transitions.action_mask.reshape(batch_size, *transitions.action_mask.shape[2:]),
-        current_player=transitions.current_player.reshape(batch_size),
-        advantage=advantages.reshape(batch_size),
-        target_value=target_values.reshape(batch_size),
-        valid_mask=valid_mask.reshape(batch_size),
-        log_env_reach_prob=log_env_reach_probs.reshape(batch_size),
+    # Step 3: Calculate GAE - works on (num_envs, num_agents, num_steps)
+    advantages, target_values = calculate_gae(
+        transitions, gamma, gae_gamma
     )
 
-    # log avg episode length
+    # Step 4: Flatten to batch dimension (num_envs * num_agents * num_steps,)
+    batch_size = num_envs * num_agents * num_steps
+
+    dataset = create_dataset(
+        transitions, advantages, target_values, batch_size
+    )
+
+    # Log metrics - mean reward across agents
+    mean_reward = transitions.reward.mean(axis=1)  # (num_envs, num_steps)
     metrics.update(
-        inverse_eps_len=transitions.is_new_eps.reshape(batch_size), # ratio of new episode
-        reward=transitions.reward.reshape(batch_size, num_agents)[:, 0] # player 0 rewards
+        inverse_eps_len=transitions.is_new_eps.reshape(num_envs * num_steps),
+        reward=mean_reward.reshape(num_envs * num_steps)
     )
-    
-    if active_agent_idx is not None:
-        return env_state, last_timestep, metrics, dataset, active_agent_idx
-    else:
-        return env_state, last_timestep, metrics, dataset
+
+    return env_state, last_timestep, metrics, dataset
 
 @partial(nnx.jit, static_argnames=('env', 'num_envs', 'num_steps'))
 def collect_trajectories(
     env: env_types.BaseEnv,
-    agent: Union[BaseAgent, List[BaseAgent]],
+    agent: BaseAgent,
     env_state: env_types.EnvState,
     last_timestep: env_types.TimeStep,
     key: chex.PRNGKey,
     num_envs: int,
     num_steps: int,
-    active_agent_idx: Union[chex.Array, None] = None,
-) -> Union[Tuple[env_types.EnvState, env_types.TimeStep, train_types.Transition],
-           Tuple[env_types.EnvState, env_types.TimeStep, train_types.Transition, chex.Array]]:
+) -> Tuple[env_types.EnvState, env_types.TimeStep, train_types.Transition]:
     """
     Collect trajectories from multiple environments for a specified number of steps.
-    
-    This function performs rollouts across multiple environments, collecting transitions
-    for training. Each environment is stepped forward for num_steps.
-    
+
+    All agents act simultaneously using a shared agent model.
+
     Args:
         env: The environment instance implementing BaseEnv interface
-        agent: Single agent or list of agents for multi-agent environments
+        agent: Shared agent model used by all agents
         env_state: Current state of all environments, shape (num_envs, ...)
         last_timestep: The last timestep from previous rollout, shape (num_envs, ...)
         key: JAX random key for action sampling (single key, will be split internally)
         num_envs: Number of parallel environments to run
         num_steps: Number of steps to collect from each environment
-        
+
     Returns:
         Tuple containing:
         - env_state: Updated environment states after rollout, shape (num_envs, ...)
         - last_timestep: Final timestep from rollout, shape (num_envs, ...)
         - transitions: Collected transitions, shape (num_envs, num_steps, ...)
-                      Contains action, value, reward, log_prob, observation, 
-                      action_mask, current_player, and is_new_eps fields
-                      
+                      All agent actions/values/log_probs have shape (num_agents,) per timestep
+
     Note:
         - Environments are assumed to auto-reset when done=True
         - All inputs must have consistent batch dimensions of num_envs
     """
 
-    chex.assert_equal_shape([last_timestep.done, env_state.done])
-    chex.assert_shape(last_timestep.done, (num_envs, )) # should input as a batch with (num_envs, ...)
     chex.assert_rank(key, 0) # one key
 
-    def collect_one_env_step(carry: Tuple[env_types.TimeStep, env_types.EnvState, chex.PRNGKey, chex.Array] , _: Any):
-        """step env for a single env, i.e., no batch dimesions"""
-
-        if active_agent_idx is None:
-            last_timestep, env_state, key = carry
-            current_active_agent_idx = None
-        else:
-            last_timestep, env_state, key, current_active_agent_idx = carry
+    def collect_one_env_step(carry: Tuple[env_types.TimeStep, env_types.EnvState, chex.PRNGKey], _: Any):
+        """Step env for a single env, i.e., no batch dimensions. All agents act simultaneously."""
+        last_timestep, env_state, key = carry
         key, act_key = jax.random.split(key)
 
-        # add batch dimesion for input to agent
-        last_timestep: env_types.TimeStep = jax.tree.map(lambda x: jnp.expand_dims(x, axis=0), last_timestep)
-        
-        # agent act
-        if isinstance(agent, list):
-            # Run all agents and pick the output from current player
-            all_agent_outputs = []
-            for agent_i in agent:
-                agent_output_i = agent_i.get_action_and_value(
-                    last_timestep.observation, act_key, last_timestep.action_mask
-                )
-                all_agent_outputs.append(agent_output_i)
-            
-            # Stack outputs from all agents and select the current player's output
-            current_player = jnp.squeeze(last_timestep.current_player, axis=0)
-            stacked_outputs = jax.tree.map(lambda *outputs: jnp.stack(outputs, axis=0), *all_agent_outputs)
-            agent_output = jax.tree.map(lambda x: x[current_player], stacked_outputs)
-        else:
-            agent_output = agent.get_action_and_value(
-                last_timestep.observation, act_key, last_timestep.action_mask
-            )
+        # Shared agent - use num_agents as batch dimension
+        # observations shape: (num_agents, ...) → agent treats this as (batch_size, ...)
+        actions, log_probs, values = agent.get_action_and_value(
+            last_timestep.observation, act_key, last_timestep.action_mask
+        )
+        # Output shapes: actions, log_probs, values all (num_agents,)
 
-        # remove batch dimesion
-        action, log_prob, value = jax.tree.map(lambda x: jnp.squeeze(x, axis=0), agent_output)
-        
-        # Remove batch dimension from last_timestep after agent processing
-        last_timestep = jax.tree.map(lambda x: jnp.squeeze(x, axis=0), last_timestep)
+        # Step env with actions from all agents (actions shape: (num_agents,))
+        env_state, new_timestep = env.step(env_state, actions)
 
-        # step env
-        env_state, new_timestep = env.step(env_state, action)
-
-        # create new transition
+        # Create transition storing all agents' data
         transition = train_types.Transition(
-            is_new_eps=last_timestep.done, # our env atuto reset at Same mode, so when last step is done, meaning this step is new episode
-            action=action,
-            value=value,
-            reward=new_timestep.reward,
-            log_prob=log_prob,
-            observation=last_timestep.observation,
-            action_mask=last_timestep.action_mask,
-            current_player=last_timestep.current_player
+            is_new_eps=last_timestep.done,  # our env auto reset, so when last step is done, this step is new episode
+            action=actions,                  # shape (num_agents,)
+            value=values,                    # shape (num_agents,)
+            reward=new_timestep.reward,      # shape (num_agents,)
+            log_prob=log_probs,              # shape (num_agents,)
+            observation=last_timestep.observation,     # shape (num_agents, ...)
+            action_mask=last_timestep.action_mask,     # shape (num_agents, ...)
         )
 
-        # return next carry and this transition
-        if active_agent_idx is None:
-            return (new_timestep, env_state, key), transition    
-        else:
-            return (new_timestep, env_state, key, current_active_agent_idx), transition
-    
-    # the output of rollout will have extra dimesion of (num_steps, ...)
+        return (new_timestep, env_state, key), transition
+
+    # the output of rollout will have extra dimension of (num_steps, ...)
     single_env_rollout_fc = nnx.scan(
         collect_one_env_step, length=num_steps
     )
 
     # batch for num_envs
     batch_env_rollout_fc = nnx.vmap(single_env_rollout_fc, in_axes=(0, None), out_axes=0)
-    
+
     # prepare batched keys
     keys = jax.random.split(key, num_envs)
 
     # perform batch rollout, return with shape (num_envs, num_steps, ...)
-    if active_agent_idx is None:
-        (last_timestep, env_state, _), transitions = batch_env_rollout_fc(
-            (last_timestep, env_state, keys), # carry
-            None # empty Ys
-        )
-    else:
-        (last_timestep, env_state, _, active_agent_idx), transitions = batch_env_rollout_fc(
-            (last_timestep, env_state, keys, active_agent_idx), # carry
-            None # empty Ys
-        )
+    (last_timestep, env_state, _), transitions = batch_env_rollout_fc(
+        (last_timestep, env_state, keys), # carry
+        None # empty Ys
+    )
 
     chex.assert_shape(transitions.is_new_eps, (num_envs, num_steps))
 
-    if active_agent_idx is None:
-        return env_state, last_timestep, transitions
-    else:
-        return env_state, last_timestep, transitions, active_agent_idx
+    return env_state, last_timestep, transitions
 
 
-@partial(nnx.jit, static_argnames=('num_agents', ))
+@nnx.jit
 def calculate_gae(
     transitions: train_types.Transition,
-    num_agents: int, 
-    gamma: float, 
-    gae_gamma: float
-) -> Tuple[chex.Array, chex.Array, chex.Array]:
+    gamma: float,
+    gae_gamma: float,
+) -> Tuple[chex.Array, chex.Array]:
     """
     Calculate Generalized Advantage Estimation (GAE) for multi-agent trajectories.
-    
+
+    Strategy: Work directly on (num_envs, num_agents, num_steps) shape - flatten once and vmap.
+
     Args:
-        transitions: Trajectory data with shape (num_envs, num_steps, ...)
-        num_agents: Number of agents in the environment
-        gamma: Discount factor for future rewards
-        gae_gamma: GAE lambda parameter for bias-variance tradeoff
-        
+        transitions: Rearranged trajectory data with shape (num_envs, num_agents, num_steps, ...)
+                    - reward: (num_envs, num_agents, num_steps)
+                    - value: (num_envs, num_agents, num_steps)
+                    - is_new_eps: (num_envs, num_steps) - scalar per env/timestep
+        gamma: Discount factor for future rewards (0 < gamma <= 1)
+        gae_gamma: GAE lambda parameter (0 < gae_gamma <= 1)
+
     Returns:
-        Tuple of (advantages, target_values, valid_mask) with shape (num_envs, num_steps)
-        - advantages: GAE advantages for each transition
-        - target_values: Target values for critic training
-        - valid_mask: Boolean mask indicating which advantages are valid
+        Tuple of (advantages, target_values) with shape (num_envs, num_agents, num_steps)
     """
 
-    def calculate_one_env_gae(
-        carry: Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array, chex.Array], 
-        transition: train_types.Transition
-    ) -> Tuple[Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array, chex.Array], Tuple[chex.Array, chex.Array, chex.Array]]:
+    def calculate_single_trajectory_gae(
+        trajectory_data: Tuple[chex.Array, chex.Array, chex.Array]
+    ) -> Tuple[chex.Array, chex.Array]:
         """
-        Calculate GAE for a single environment step (reverse scan).
-        
+        Calculate GAE for a single trajectory (one env, one agent).
+
         Args:
-            carry: Tuple of (gae, next_value, reward_accum, has_next_value, is_valid) arrays, each shape (num_agents,) beside is_valid shape ()
-            transition: Current transition (earlier in time due to reverse scan)
-            
+            trajectory_data: Tuple of (rewards, values, is_new_eps), each shape (num_steps,)
+
         Returns:
-            Tuple of (new_carry, (advantage, target_value, valid_mask)) where:
-            - new_carry: Updated carry for previous step
-            - advantage: GAE advantage for current player (scalar) 
-            - target_value: Target value for current player (scalar)
-            - valid_mask: Whether this advantage is valid (scalar)
+            Tuple of (advantages, target_values), each shape (num_steps,)
         """
-        next_gae, next_value, reward_accum, has_next_value, next_is_new_eps, next_is_valid = carry
-        
-        # Extract transition data
-        current_player = transition.current_player  # scalar
-        reward = transition.reward  # shape: (num_agents,)
-        value = transition.value  # scalar value for current player
-        is_new_eps = transition.is_new_eps  # scalar
-        
-        # Reset states at episode boundaries
-        next_gae = jnp.where(next_is_new_eps, jnp.zeros_like(next_gae), next_gae)
-        reward_accum = jnp.where(next_is_new_eps, jnp.zeros_like(reward_accum), reward_accum)
-        has_next_value = jnp.where(next_is_new_eps, jnp.zeros_like(has_next_value), has_next_value)
-        next_value = jnp.where(next_is_new_eps, jnp.zeros_like(next_value), next_value)
-        
-        # Accumulate rewards for all agents
-        reward_accum = reward_accum + reward
-        
-        # Current player consumes their accumulated reward
-        player_reward = reward_accum[current_player]
-        
-        # Reset reward accumulator for current player after consumption
-        consumed_reward_accum = reward_accum.at[current_player].set(0.0)
-        
-        # Check if we have valid next_value for current player
-        player_has_next = has_next_value[current_player]
-        
-        # Calculate TD error for current player using consumed reward
-        td_error = player_reward + gamma * next_value[current_player] - value
-        
-        # Update GAE for current player only
-        new_gae_current = td_error + gamma * gae_gamma * next_gae[current_player]
-        new_gae = next_gae.at[current_player].set(new_gae_current)
-        
-        # Calculate advantage and target value for current player
-        # Only valid if 1) have next value OR 2) is complete episode
-        is_valid = player_has_next | next_is_new_eps | next_is_valid[current_player]
-        advantage = jnp.where(is_valid, new_gae_current, 0.0)
-        target_value = jnp.where(is_valid, advantage + value, value)
-        valid_mask = is_valid
-        
-        # Update next_value and has_next_value for current player
-        updated_next_value = next_value.at[current_player].set(value)
-        updated_has_next_value = has_next_value.at[current_player].set(True)
+        rewards, values, is_new_eps = trajectory_data
 
-        # update next is value
-        updated_next_is_valid = next_is_valid.at[current_player].set(is_valid) | next_is_new_eps # is complete episode
-        
-        return (
-            new_gae, updated_next_value, consumed_reward_accum, updated_has_next_value, is_new_eps, updated_next_is_valid
-        ), (advantage, target_value, valid_mask)
+        def gae_step(
+            carry: Tuple[chex.Array, chex.Array],
+            timestep_data: Tuple[chex.Array, chex.Array, chex.Array]
+        ) -> Tuple[Tuple[chex.Array, chex.Array], Tuple[chex.Array, chex.Array]]:
+            """Single GAE step in reverse scan over time."""
+            next_gae, next_value = carry
+            reward, value, is_new_eps = timestep_data
 
-    # Process each environment in parallel
-    def process_single_env(transitions_single_env: train_types.Transition) -> Tuple[chex.Array, chex.Array, chex.Array]:
-        """Process GAE calculation for a single environment's trajectory."""
-        
-        # Initialize carry for reverse scan
-        init_gae = jnp.zeros(num_agents, dtype=jnp.float32)
-        init_next_value = jnp.zeros(num_agents, dtype=jnp.float32)
-        init_reward_accum = jnp.zeros(num_agents, dtype=jnp.float32)
-        init_has_next_value = jnp.zeros(num_agents, dtype=jnp.bool)
-        init_next_is_new_eps = jnp.array(False, dtype=jnp.bool)
-        init_next_is_valid = jnp.zeros(num_agents, dtype=jnp.bool)
-        init_carry = (init_gae, init_next_value, init_reward_accum, init_has_next_value, init_next_is_new_eps, init_next_is_valid)
-        
-        # Use lax.scan in reverse to propagate values backward
-        _, (advantages, target_values, valid_mask) = jax.lax.scan(
-            calculate_one_env_gae,
+            # Compute TD error and GAE
+            td_error = reward + gamma * next_value - value
+            gae = td_error + gamma * gae_gamma * next_gae
+
+            advantage = gae
+            target_value = advantage + value
+
+            # Reset carry at episode boundaries (prevent leakage to previous episode)
+            gae_out = jnp.where(is_new_eps, 0.0, gae)
+            value_out = jnp.where(is_new_eps, 0.0, value)
+
+            return (gae_out, value_out), (advantage, target_value)
+
+        # Initialize and scan
+        init_carry = (jnp.float32(0.0), jnp.float32(0.0))
+        _, (advantages, target_values) = jax.lax.scan(
+            gae_step,
             init_carry,
-            transitions_single_env,
+            (rewards, values, is_new_eps),
             reverse=True
         )
-        
-        return advantages, target_values, valid_mask
-    
-    # Vectorize over environments
-    advantages, target_values, valid_mask = jax.vmap(process_single_env)(transitions)
-    
-    return advantages, target_values, valid_mask
 
-@partial(nnx.jit, static_argnames=('num_agents', ))
-def calculate_log_env_reach_prob(
-    transitions: train_types.Transition,
-    num_agents: int
-) -> chex.Array:
-    
-    def process_single_env(transitions: train_types.Transition) -> chex.Array:
-        # transitions shape (num_steps, ...)
-        num_steps = transitions.current_player.shape[0]
+        return advantages, target_values
 
-        def process_player(transitions: train_types.Transition, player_i: chex.Numeric) -> chex.Array:
-            is_cur_player = transitions.current_player == player_i
+    # Extract data - already in shape (num_envs, num_agents, num_steps)
+    rewards = transitions.reward
+    values = transitions.value
 
-            # env reach prob don't consider current player
-            log_probs = jnp.where(is_cur_player, jnp.float32(0.0), transitions.log_prob)
-            is_new_eps = transitions.is_new_eps
+    # Infer shapes from arrays
+    num_envs, num_agents, num_steps = rewards.shape
 
-            def calculate_one_log_env_reach_prob(acc: chex.Numeric, xs: Tuple[chex.Array, chex.Array]):
-                cur_log_prob, is_new_eps = xs
+    # Broadcast is_new_eps: (num_envs, num_steps) → (num_envs, num_agents, num_steps)
+    is_new_eps = transitions.is_new_eps[:, None, :]  # (num_envs, 1, num_steps)
+    is_new_eps = jnp.broadcast_to(is_new_eps, rewards.shape)
 
-                acc = jnp.where(is_new_eps, jnp.float32(0.0), acc)
+    # Flatten to batch: (num_envs, num_agents, num_steps) → (num_envs * num_agents, num_steps)
+    batch_size = num_envs * num_agents
+    rewards_flat = rewards.reshape(batch_size, num_steps)
+    values_flat = values.reshape(batch_size, num_steps)
+    is_new_eps_flat = is_new_eps.reshape(batch_size, num_steps)
 
-                return acc + cur_log_prob, acc
+    # Vmap over batch dimension
+    batched_gae = jax.vmap(calculate_single_trajectory_gae, in_axes=0, out_axes=0)
+    advantages_flat, target_values_flat = batched_gae((rewards_flat, values_flat, is_new_eps_flat))
 
-            _, log_env_reach_prob = jax.lax.scan(
-                calculate_one_log_env_reach_prob, init=0, xs=(log_probs, is_new_eps)
-            )
+    # Unflatten: (num_envs * num_agents, num_steps) → (num_envs, num_agents, num_steps)
+    advantages = advantages_flat.reshape(num_envs, num_agents, num_steps)
+    target_values = target_values_flat.reshape(num_envs, num_agents, num_steps)
 
-            return log_env_reach_prob
-        
-        players = jnp.arange(num_agents)
-        log_env_reach_probs = jax.vmap(process_player, in_axes=(None, 0))(transitions, players)
-        log_env_reach_probs = log_env_reach_probs[transitions.current_player, jnp.arange(num_steps)]
-
-        return log_env_reach_probs
-    
-    log_env_reach_probs = jax.vmap(process_single_env)(transitions)
-
-    return log_env_reach_probs # (num_envs, num_steps)
+    return advantages, target_values

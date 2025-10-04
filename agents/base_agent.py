@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple
 from flax import nnx
 import chex
 import abc
@@ -126,7 +126,7 @@ class BaseAgent(nnx.Module, ConfigurableAgent, abc.ABC):
             FileNotFoundError: If checkpoint doesn't exist
             ValueError: If metadata is invalid or class mismatch detected
         """
-        from agents.registry import get_agent_class_from_name, get_agent_name_from_class
+        from agents import get_agent_class_from_name, get_agent_name_from_class
 
         checkpoint_path = Path(checkpoint_dir).resolve()
         checkpoint_path = checkpoint_path / f"checkpoint_{step}"

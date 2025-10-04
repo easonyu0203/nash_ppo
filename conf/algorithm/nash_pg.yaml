@@ -1,8 +1,8 @@
 lr: 3e-4
 ent_coef: 0.05
 clip_eps: 0.2
-num_envs: 64
-num_steps: 64
+num_envs: 8
+num_steps: 128
 gamma: 1.0
 gae_gamma: 0.95
 num_minibatches: 4
