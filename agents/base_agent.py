@@ -6,6 +6,7 @@ import abc
 import distrax
 import orbax.checkpoint as ocp
 import json
+import jax
 
 import envs.mytypes as env_types
 from agents.configurable_agent import ConfigurableAgent
@@ -80,6 +81,11 @@ class BaseAgent(nnx.Module, ConfigurableAgent, abc.ABC):
         1. agent_state: Neural network parameters (Orbax format)
         2. metadata.json: Agent class name and configuration
 
+        Best practices followed:
+        - Device-agnostic: Arrays are moved to CPU before saving to ensure
+          compatibility across different devices (CPU/CUDA/TPU)
+        - State only: Only saves trainable parameters, not graph structure
+
         Args:
             checkpoint_dir: Directory to save checkpoint
             step: step number for checkpoint naming
@@ -93,9 +99,17 @@ class BaseAgent(nnx.Module, ConfigurableAgent, abc.ABC):
         # Split the agent into graphdef and state
         _, state = nnx.split(self)
 
+        # Move all arrays to CPU to ensure device-agnostic checkpoints
+        # This prevents device placement issues when loading on different hardware
+        cpu_device = jax.devices('cpu')[0]
+        state_cpu = jax.tree.map(
+            lambda x: jax.device_put(x, cpu_device) if isinstance(x, jax.Array) else x,
+            state
+        )
+
         # Save the state using Orbax
         checkpointer = ocp.PyTreeCheckpointer()
-        checkpointer.save(checkpoint_path / 'agent_state', state)
+        checkpointer.save(checkpoint_path / 'agent_state', state_cpu)
 
         # Save metadata (agent class name and config)
         metadata = {
@@ -113,6 +127,11 @@ class BaseAgent(nnx.Module, ConfigurableAgent, abc.ABC):
         This method can be called from BaseAgent or any subclass:
         - If called from BaseAgent: Uses metadata to determine and instantiate correct subclass
         - If called from subclass: Validates metadata matches the subclass
+
+        Best practices followed:
+        - Device-agnostic: Uses SingleDeviceSharding to load on current default device
+        - Automatic device placement: Arrays are placed on the default JAX device
+        - Cross-device compatible: Works whether checkpoint was saved on CPU/CUDA/TPU
 
         Args:
             checkpoint_dir: Directory containing checkpoint
@@ -167,9 +186,26 @@ class BaseAgent(nnx.Module, ConfigurableAgent, abc.ABC):
         abstract_agent = nnx.eval_shape(lambda: target_cls(key, **agent_config))
         graphdef, abstract_state = nnx.split(abstract_agent)
 
-        # Restore the checkpoint
+        # Prepare restore args with explicit sharding for current device
+        # This ensures checkpoint can be loaded on any device (CPU/CUDA/TPU)
+        default_device = jax.devices()[0]
+        sharding = jax.sharding.SingleDeviceSharding(default_device)
+
+        # Create restore args: ArrayRestoreArgs for arrays (ShapeDtypeStruct), None for others
+        def create_restore_args(x):
+            if isinstance(x, (jax.Array, jax.ShapeDtypeStruct)):
+                return ocp.ArrayRestoreArgs(sharding=sharding)
+            return None  # Let Orbax use default restoration for non-arrays
+
+        restore_args = jax.tree.map(create_restore_args, abstract_state)
+
+        # Restore the checkpoint with explicit sharding
         checkpointer = ocp.PyTreeCheckpointer()
-        restored_state = checkpointer.restore(checkpoint_path / 'agent_state', abstract_state)
+        restored_state = checkpointer.restore(
+            checkpoint_path / 'agent_state',
+            item=abstract_state,
+            restore_args=restore_args
+        )
 
         # Merge graphdef and restored state to create the agent
         agent = nnx.merge(graphdef, restored_state)
