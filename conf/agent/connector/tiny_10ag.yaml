@@ -1,0 +1,5 @@
+agent_name: "connector"
+num_classes: 30  # num_agents * 3 = 10 * 3
+output_dim: 5
+embed_dim: 32  # Match first CNN channel size for residual connection
+cnn_blocks: [[32, 32]]

@@ -1,11 +1,12 @@
 from omegaconf import DictConfig
 from envs.wrappers import AutoResetWrapper, JumanjiWrapper
-from envs.jumanji_envs import create_robot_warehouse
+from envs.jumanji_envs import create_robot_warehouse, create_connector
 
 
 # Registry mapping env_name to creator function
 _ENV_REGISTRY = {
     "robot_warehouse": create_robot_warehouse,
+    "connector": create_connector,
     # Add more environments here as needed
     # "custom_env": create_custom_env,
 }

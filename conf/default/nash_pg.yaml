@@ -1,5 +1,5 @@
 defaults:
-  - agent: robot_warehouse
+  - agent: robot_warehouse/tiny
   - env: robot_warehouse/tiny_2ag
   - algorithm: nash_pg
   - logging: tensorboard

@@ -10,16 +10,24 @@ import envs.mytypes as env_types
 
 class FeatureExtractor(nnx.Module):
 
-    def __init__(self, key: chex.PRNGKey, input_dim: int, mlp_dim: int):
+    def __init__(self, key: chex.PRNGKey, input_dim: int, mlp_dim: int, num_hidden_layers: int = 1):
         rngs = nnx.Rngs(key)
-        self.mlp = nnx.Sequential(
+
+        # Build sequential layers
+        layers = []
+        # First layer: input_dim -> mlp_dim
+        layers.extend([
             nnx.Linear(in_features=input_dim, out_features=mlp_dim, rngs=rngs),
-            nnx.relu,
-            nnx.Linear(in_features=mlp_dim, out_features=mlp_dim, rngs=rngs),
-            nnx.relu,
-            nnx.Linear(in_features=mlp_dim, out_features=mlp_dim, rngs=rngs),
             nnx.relu
-        )
+        ])
+        # Hidden layers: mlp_dim -> mlp_dim
+        for _ in range(num_hidden_layers - 1):
+            layers.extend([
+                nnx.Linear(in_features=mlp_dim, out_features=mlp_dim, rngs=rngs),
+                nnx.relu
+            ])
+
+        self.mlp = nnx.Sequential(*layers)
         
     def __call__(self, observations: chex.Array) -> chex.Array:
         # Flatten input
@@ -29,13 +37,13 @@ class FeatureExtractor(nnx.Module):
 
 class MLPAgent(BaseAgent):
 
-    def __init__(self, key: chex.PRNGKey, input_dim: int, output_dim: int, mlp_dim: int = 64):
+    def __init__(self, key: chex.PRNGKey, input_dim: int, output_dim: int, mlp_dim: int = 64, num_hidden_layers: int = 3):
         key1, key2, key3 = jax.random.split(key, 3)
         rngs = nnx.Rngs(key3)
 
         # Separate feature extractors for policy and critic (no parameter sharing)
-        self.policy_extractor = FeatureExtractor(key1, input_dim, mlp_dim)
-        self.critic_extractor = FeatureExtractor(key2, input_dim, mlp_dim)
+        self.policy_extractor = FeatureExtractor(key1, input_dim, mlp_dim, num_hidden_layers)
+        self.critic_extractor = FeatureExtractor(key2, input_dim, mlp_dim, num_hidden_layers)
 
         # Policy and critic heads
         self._policy_head = nnx.Linear(in_features=mlp_dim, out_features=output_dim, rngs=rngs)

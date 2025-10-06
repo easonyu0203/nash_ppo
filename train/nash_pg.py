@@ -3,9 +3,11 @@ Training script for simultaneous update self-play
 
 Usage:
     JAX_PLATFORMS=cpu uv run train/nash_pg.py \
-                        algorithm.num_inner_update=200 \
-                        algorithm.num_outer_update=100 \
-                        logging.save_interval=2000
+                        algorithm.num_inner_update=1000 \
+                        algorithm.num_outer_update=25 \
+                        algorithm.mag_coef=0.2 \
+                        logging.save_interval=1000 \
+                        run_name=robot_warehouse/ippo/default_run
     
     CUDA_VISIBLE_DEVICES=0 uv run train/nash_pg.py \
                             algorithm.num_inner_update=200 \
