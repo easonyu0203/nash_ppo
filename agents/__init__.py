@@ -3,7 +3,7 @@ from agents.mlp_agent import MLPAgent
 from agents.connector_agent import ConnectorAgent
 
 import chex
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from typing import Type
 
 
@@ -72,8 +72,9 @@ def create_agent(agent_config: DictConfig, key: chex.PRNGKey) -> BaseAgent:
     agent_name = agent_config.agent_name
     agent_cls = get_agent_class_from_name(agent_name)
 
-    # config dict passing as key word arguments
-    config_dict = dict(agent_config)
+    # Convert OmegaConf to standard Python types (dict, list, str, int, float)
+    # This ensures agents receive standard types, not ListConfig/DictConfig
+    config_dict = OmegaConf.to_container(agent_config, resolve=True)
     config_dict.pop('agent_name', None)
 
     return agent_cls(key, **config_dict)

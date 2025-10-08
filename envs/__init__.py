@@ -33,7 +33,12 @@ def create_env(env_config: DictConfig):
         )
 
     creator_fn = _ENV_REGISTRY[env_name]
-    return creator_fn(env_config)
+
+    env = creator_fn(env_config)
+
+    # wrap with common wrapper
+    env = AutoResetWrapper(env)
+    return env
 
 
 __all__ = ["create_env", "AutoResetWrapper", "JumanjiWrapper"]

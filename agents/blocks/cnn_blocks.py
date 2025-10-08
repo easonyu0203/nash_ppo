@@ -29,8 +29,8 @@ class CNNBlock(nnx.Module):
         """
         rngs = nnx.Rngs(key)
 
-        self.layers = []
-        self.projections = []
+        layers = []
+        projections = []
 
         current_channels = in_channels
         for out_channels in channel_sizes:
@@ -42,7 +42,7 @@ class CNNBlock(nnx.Module):
                 padding='SAME',
                 rngs=rngs
             )
-            self.layers.append(conv)
+            layers.append(conv)
 
             # Projection for residual if channels change
             if current_channels != out_channels:
@@ -53,12 +53,14 @@ class CNNBlock(nnx.Module):
                     padding='SAME',
                     rngs=rngs
                 )
-                self.projections.append(projection)
+                projections.append(projection)
             else:
-                self.projections.append(None)
+                projections.append(None)
 
             current_channels = out_channels
 
+        self.layers = nnx.List(layers)
+        self.projections = nnx.List(projections)
         self.out_channels = current_channels
 
     def __call__(self, x: chex.Array) -> chex.Array:

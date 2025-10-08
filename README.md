@@ -14,6 +14,16 @@ uv run train/nash_pg.py \
     algorithm.mag_coef=0.2 \
     logging.save_interval=100 \
     logging.log_interval=10 \
+    env=robot_warehouse/tiny_2ag \
+    agent=robot_warehouse/tiny \
+    run_name=robot_warehouse/nash_pg/default_run
+
+uv run train/nash_pg.py \
+    algorithm.num_inner_update=100 \
+    algorithm.num_outer_update=10 \
+    algorithm.mag_coef=0.2 \
+    logging.save_interval=100 \
+    logging.log_interval=10 \
     env=connector/grid10_5ag \
     agent=connector/tiny_5ag \
     run_name=connector/nash_pg/default_run

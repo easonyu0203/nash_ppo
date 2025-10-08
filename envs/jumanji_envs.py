@@ -5,7 +5,7 @@ from jumanji.environments.routing.robot_warehouse.generator import RandomGenerat
 from jumanji.environments.routing.robot_warehouse.env import RobotWarehouse
 from jumanji.environments.routing.connector.generator import RandomWalkGenerator
 from jumanji.environments.routing.connector.env import Connector
-from envs.wrappers import AutoResetWrapper, JumanjiWrapper
+from envs.wrappers.jumanji_wrapper import RobotWarehouseWrapper, ConnectorWrapper
 
 
 def create_robot_warehouse(config: DictConfig):
@@ -33,8 +33,8 @@ def create_robot_warehouse(config: DictConfig):
     )
     env = RobotWarehouse(generator=generator)
 
-    # Wrap with JumanjiWrapper and AutoResetWrapper
-    env = AutoResetWrapper(JumanjiWrapper(env))
+    # Wrap with RobotWarehouseWrapper
+    env = RobotWarehouseWrapper(env)
     return env
 
 
@@ -55,6 +55,6 @@ def create_connector(config: DictConfig):
     )
     env = Connector(generator=generator)
 
-    # Wrap with JumanjiWrapper and AutoResetWrapper
-    env = AutoResetWrapper(JumanjiWrapper(env))
+    # Wrap with ConnectorWrapper
+    env = ConnectorWrapper(env)
     return env

@@ -28,7 +28,7 @@ class ConnectorFeatureExtractor(nnx.Module):
 
         Args:
             key: Random key for initialization
-            num_classes: Number of classes for embedding (num_agents * 3)
+            num_classes: Number of classes for embedding (num_agents * 3 + 1)
             embed_dim: Embedding dimension
             cnn_blocks: List of tuples, each tuple specifies channel sizes for a CNN block.
                        e.g., [(32, 64), (128, 256)] creates 2 blocks
@@ -45,7 +45,7 @@ class ConnectorFeatureExtractor(nnx.Module):
         )
 
         # Build CNN blocks with max pooling
-        self.blocks = []
+        blocks = []
         in_channels = embed_dim
 
         for key_block, channel_sizes in zip(keys_blocks, cnn_blocks):
@@ -55,8 +55,10 @@ class ConnectorFeatureExtractor(nnx.Module):
                 channel_sizes=channel_sizes,
                 kernel_size=3
             )
-            self.blocks.append(block)
+            blocks.append(block)
             in_channels = block.out_channels
+
+        self.blocks = nnx.List(blocks)
 
         # Output dimension after global max pooling
         self.output_dim = in_channels
@@ -105,19 +107,17 @@ class ConnectorAgent(BaseAgent):
         num_classes: int,
         output_dim: int,
         embed_dim: int = 64,
-        cnn_blocks: List[Tuple[int, ...]] = None,
+        cnn_blocks: List[Tuple[int, ...]] = [(64, 64), (128, 128)],
     ):
         """Initialize CNN agent.
 
         Args:
             key: Random key for initialization
-            num_classes: Number of classes for embedding (num_agents * 3)
+            num_classes: Number of classes for embedding (num_agents * 3 + 1)
             output_dim: Action space size
             embed_dim: Embedding dimension (default 64, should match first CNN channel)
             cnn_blocks: List of tuples specifying CNN block channels (default [(64, 64), (128, 128)])
         """
-        if cnn_blocks is None:
-            cnn_blocks = [(64, 64), (128, 128)]
 
         key1, key2, key3 = jax.random.split(key, 3)
         rngs = nnx.Rngs(key3)
