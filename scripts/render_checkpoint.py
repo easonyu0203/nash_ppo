@@ -2,7 +2,7 @@
 Render one episode using a trained agent checkpoint.
 
 Usage:
-    uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/robot_warehouse/nash_pg/default_run --step 100000 --env-config conf/env/robot_warehouse/tiny_4ag.yaml --seed 100
+    uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/robot_warehouse/nash_pg/default_run --step 100000 --env-config conf/env/robot_warehouse/tiny_4ag.yaml --seed 100 --fps 4
 """
 
 import os
@@ -15,6 +15,7 @@ logging.getLogger('orbax').setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", message=".*Sharding info not provided.*")
 import argparse
 from functools import partial
+import time
 import jax
 import jax.numpy as jnp
 from omegaconf import OmegaConf
@@ -36,7 +37,7 @@ def step_episode(env, agent, env_state, timestep, key):
     return env_state, next_timestep, key
 
 
-def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int = 0):
+def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int = 0, fps: float = 4.0):
     """
     Load a checkpoint and play one episode with rendering.
 
@@ -45,6 +46,7 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
         step: Training step to load
         env_config_path: Path to environment config yaml
         seed: Random seed for episode
+        fps: Frames per second for rendering (default: 4.0)
     """
     # Load agent from checkpoint
     print(f"Loading checkpoint from {checkpoint_dir} at step {step}...")
@@ -66,17 +68,24 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
     env_state, timestep = env.reset(reset_key)
 
     # Run episode step by step with rendering
-    print("\nRunning episode with rendering...")
+    print(f"\nRunning episode with rendering at {fps} FPS...")
     episode_reward = jnp.zeros(env.num_agents)
     step_count = 0
     max_steps = 1000  # Safety limit
 
+    # FPS capping
+    frame_delay = 1.0 / fps if fps > 0 else 0
+    last_frame_time = time.time()
+
     try:
         # Render initial state
         env.render(env_state)
+        if frame_delay > 0:
+            time.sleep(frame_delay)
+            last_frame_time = time.time()
     except NotImplementedError:
         print("Warning: render() not implemented for this environment")
-        # Continue without rendering
+        return
 
     while not timestep.done and step_count < max_steps:
         # Take one step (JIT-compiled)
@@ -87,10 +96,15 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
         step_count += 1
 
         # Render current state
-        try:
-            env.render(env_state)
-        except NotImplementedError:
-            pass
+        env.render(env_state)
+
+        # Cap FPS by sleeping if needed
+        if frame_delay > 0:
+            elapsed = time.time() - last_frame_time
+            sleep_time = frame_delay - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            last_frame_time = time.time()
 
     # Print episode statistics
     print(f"\nEpisode finished!")
@@ -129,6 +143,12 @@ def main():
         default=0,
         help="Random seed for episode (default: 0)"
     )
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=4.0,
+        help="Frames per second for rendering (default: 4.0)"
+    )
 
     args = parser.parse_args()
 
@@ -136,7 +156,8 @@ def main():
         checkpoint_dir=args.checkpoint_dir,
         step=args.step,
         env_config_path=args.env_config,
-        seed=args.seed
+        seed=args.seed,
+        fps=args.fps
     )
 
 

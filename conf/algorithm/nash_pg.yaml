@@ -1,5 +1,5 @@
 lr: 3e-4
-ent_coef: 0.05
+ent_coef: 0.001
 clip_eps: 0.2
 num_envs: 32
 num_steps: 128

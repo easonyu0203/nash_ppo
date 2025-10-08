@@ -80,4 +80,6 @@ uv run train/nash_pg.py \
 uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/robot_warehouse/nash_pg/default_run --step 100000 --env-config conf/env/robot_warehouse/tiny_4ag.yaml --seed 100
 
 uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/connector_10ag/nash_pg/default_run --step 1000 --env-config conf/env/connector/grid10_10ag.yaml --seed 100
+
+uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/lbf_tiny_3ag/nash_pg/default_run --step 5000 --env-config conf/env/lbf/tiny_3ag.yaml --seed 100
 ```
