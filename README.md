@@ -60,9 +60,9 @@ uv run train/nash_pg.py \
     algorithm.mag_coef=0.2 \
     logging.save_interval=1000 \
     logging.log_interval=10 \
-    env=lbf/tiny_3ag \
+    env=lbf/large_5ag \
     agent=lbf/tiny \
-    run_name=lbf_tiny_3ag/nash_pg/default_run
+    run_name=lbf_large_5ag/nash_pg/default_run
 
 uv run train/nash_pg.py \
     algorithm.num_inner_update=1000 \
@@ -70,9 +70,9 @@ uv run train/nash_pg.py \
     algorithm.mag_coef=0.0 \
     logging.save_interval=1000 \
     logging.log_interval=10 \
-    env=lbf/tiny_3ag \
+    env=lbf/large_5ag \
     agent=lbf/tiny \
-    run_name=lbf_tiny_3ag/ippo/default_run
+    run_name=lbf_large_5ag/ippo/default_run
 ```
 
 ## Visiualize
@@ -81,5 +81,5 @@ uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/robot_warehou
 
 uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/connector_10ag/nash_pg/default_run --step 1000 --env-config conf/env/connector/grid10_10ag.yaml --seed 100
 
-uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/lbf_tiny_3ag/nash_pg/default_run --step 5000 --env-config conf/env/lbf/tiny_3ag.yaml --seed 100
+uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/lbf_large_5ag/nash_pg/default_run --step 5000 --env-config conf/env/lbf/large_5ag.yaml --seed 100
 ```
