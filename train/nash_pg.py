@@ -23,11 +23,15 @@ import os
 from pathlib import Path
 from typing import Any, Optional, Tuple
 import logging
+import warnings
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 # Suppress verbose Orbax checkpoint logging
 logging.getLogger('absl').setLevel(logging.ERROR)
 logging.getLogger('orbax').setLevel(logging.ERROR)
+
+# Suppress FutureWarning from JAX scatter operations (from Jumanji library)
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 from functools import partial
 from tqdm import tqdm

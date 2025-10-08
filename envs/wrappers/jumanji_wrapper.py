@@ -184,3 +184,23 @@ class ConnectorWrapper(JumanjiWrapper):
         new_grid += AGENT_INITIAL_VALUE  # Un-center
         # Take agent values from rotated grid and empty values from old grid
         return jnp.where((grid >= AGENT_INITIAL_VALUE), new_grid, grid)
+
+
+class LbfWrapper(JumanjiWrapper):
+    """Wrapper for Jumanji Level Based Foraging (LBF) environment with GridObserver.
+
+    GridObserver produces observations with shape (num_agents, 3, 2*fov+1, 2*fov+1)
+    where the 3 channels represent different types of entities in the grid.
+    """
+
+    def _get_observation_space_spec(self) -> specs.Spec:
+        # LBF with GridObserver has agents_view shape (num_agents, 3, 2*fov+1, 2*fov+1)
+        return self._env.observation_spec.agents_view
+
+    def _extract_agents_view(self, jumanji_timestep) -> chex.Array:
+        # LBF GridObserver already has agents_view in the right format
+        return jumanji_timestep.observation.agents_view
+
+    def _extract_reward(self, jumanji_timestep) -> chex.Array:
+        # LBF already has per-agent rewards (num_agents,)
+        return jumanji_timestep.reward

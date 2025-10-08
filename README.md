@@ -6,7 +6,7 @@ JAX_PLATFORMS=cpu
 CUDA_VISIBLE_DEVICES=0
 ```
 
-For Nash Policy Gradient
+Robot Warehouse
 ```bash
 uv run train/nash_pg.py \
     algorithm.num_inner_update=100 \
@@ -19,19 +19,6 @@ uv run train/nash_pg.py \
     run_name=robot_warehouse/nash_pg/default_run
 
 uv run train/nash_pg.py \
-    algorithm.num_inner_update=100 \
-    algorithm.num_outer_update=10 \
-    algorithm.mag_coef=0.2 \
-    logging.save_interval=100 \
-    logging.log_interval=10 \
-    env=connector/grid10_5ag \
-    agent=connector/tiny_5ag \
-    run_name=connector/nash_pg/default_run
-```
-
-Indenpendent PPO
-```bash
-uv run train/nash_pg.py \
     algorithm.num_inner_update=1000 \
     algorithm.num_outer_update=100 \
     algorithm.mag_coef=0.0 \
@@ -40,4 +27,57 @@ uv run train/nash_pg.py \
     env=robot_warehouse/tiny_4ag \
     agent=robot_warehouse/tiny \
     run_name=robot_warehouse/ippo/default_run
+```
+
+Connector
+```bash
+uv run train/nash_pg.py \
+    algorithm.num_inner_update=1000 \
+    algorithm.num_outer_update=20 \
+    algorithm.mag_coef=0.2 \
+    logging.save_interval=1000 \
+    logging.log_interval=10 \
+    env=connector/grid10_10ag \
+    agent=connector/tiny_10ag \
+    run_name=connector_10ag/nash_pg/default_run
+
+uv run train/nash_pg.py \
+    algorithm.num_inner_update=1000 \
+    algorithm.num_outer_update=20 \
+    algorithm.mag_coef=0.0 \
+    logging.save_interval=1000 \
+    logging.log_interval=10 \
+    env=connector/grid10_10ag \
+    agent=connector/tiny_10ag \
+    run_name=connector_10ag/ippo/default_run
+```
+
+LBF
+```bash
+uv run train/nash_pg.py \
+    algorithm.num_inner_update=1000 \
+    algorithm.num_outer_update=20 \
+    algorithm.mag_coef=0.2 \
+    logging.save_interval=1000 \
+    logging.log_interval=10 \
+    env=lbf/tiny_3ag \
+    agent=lbf/tiny \
+    run_name=lbf_tiny_3ag/nash_pg/default_run
+
+uv run train/nash_pg.py \
+    algorithm.num_inner_update=1000 \
+    algorithm.num_outer_update=20 \
+    algorithm.mag_coef=0.0 \
+    logging.save_interval=1000 \
+    logging.log_interval=10 \
+    env=lbf/tiny_3ag \
+    agent=lbf/tiny \
+    run_name=lbf_tiny_3ag/ippo/default_run
+```
+
+## Visiualize
+```bash
+uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/robot_warehouse/nash_pg/default_run --step 100000 --env-config conf/env/robot_warehouse/tiny_4ag.yaml --seed 100
+
+uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/connector_10ag/nash_pg/default_run --step 1000 --env-config conf/env/connector/grid10_10ag.yaml --seed 100
 ```

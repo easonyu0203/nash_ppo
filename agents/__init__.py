@@ -1,6 +1,7 @@
 from agents.base_agent import BaseAgent
 from agents.mlp_agent import MLPAgent
 from agents.connector_agent import ConnectorAgent
+from agents.lbf_agent import LbfAgent
 
 import chex
 from omegaconf import DictConfig, OmegaConf
@@ -11,6 +12,7 @@ from typing import Type
 _AGENT_REGISTRY = {
     "mlp": MLPAgent,
     "connector": ConnectorAgent,
+    "lbf": LbfAgent,
     # Add more agents here as needed
 }
 
