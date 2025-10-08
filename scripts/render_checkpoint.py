@@ -2,7 +2,7 @@
 Render one episode using a trained agent checkpoint.
 
 Usage:
-    uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/robot_warehouse/nash_pg/default_run --step 1000 --env-config conf/env/robot_warehouse/tiny_4ag.yaml --seed 100
+    uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/robot_warehouse/nash_pg/default_run --step 100000 --env-config conf/env/robot_warehouse/tiny_4ag.yaml --seed 100
 """
 
 import os
