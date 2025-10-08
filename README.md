@@ -9,10 +9,10 @@ CUDA_VISIBLE_DEVICES=0
 Robot Warehouse
 ```bash
 uv run train/nash_pg.py \
-    algorithm.num_inner_update=100 \
-    algorithm.num_outer_update=10 \
-    algorithm.mag_coef=0.2 \
-    logging.save_interval=100 \
+    algorithm.num_inner_update=1000 \
+    algorithm.num_outer_update=20 \
+    algorithm.mag_coef=0.05 \
+    logging.save_interval=1000 \
     logging.log_interval=10 \
     env=robot_warehouse/tiny_2ag \
     agent=robot_warehouse/tiny \
@@ -20,7 +20,7 @@ uv run train/nash_pg.py \
 
 uv run train/nash_pg.py \
     algorithm.num_inner_update=1000 \
-    algorithm.num_outer_update=100 \
+    algorithm.num_outer_update=20 \
     algorithm.mag_coef=0.0 \
     logging.save_interval=1000 \
     logging.log_interval=10 \
@@ -34,7 +34,7 @@ Connector
 uv run train/nash_pg.py \
     algorithm.num_inner_update=1000 \
     algorithm.num_outer_update=20 \
-    algorithm.mag_coef=0.2 \
+    algorithm.mag_coef=0.05 \
     logging.save_interval=1000 \
     logging.log_interval=10 \
     env=connector/grid10_10ag \
@@ -57,7 +57,7 @@ LBF
 uv run train/nash_pg.py \
     algorithm.num_inner_update=1000 \
     algorithm.num_outer_update=20 \
-    algorithm.mag_coef=0.2 \
+    algorithm.mag_coef=0.05 \
     logging.save_interval=1000 \
     logging.log_interval=10 \
     env=lbf/large_6ag \
@@ -81,5 +81,5 @@ uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/robot_warehou
 
 uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/connector_10ag/nash_pg/default_run --step 1000 --env-config conf/env/connector/grid10_10ag.yaml --seed 100
 
-uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/lbf_large_6ag/nash_pg/default_run --step 5000 --env-config conf/env/lbf/large_6ag.yaml --seed 100
+uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/lbf_large_5ag/ippo/default_run --step 3000 --env-config conf/env/lbf/large_6ag.yaml --seed 100
 ```

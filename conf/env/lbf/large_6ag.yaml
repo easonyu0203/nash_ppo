@@ -1,5 +1,5 @@
 env_name: lbf
 grid_size: 16
 num_agents: 6
-num_food: 8
-fov: 2
+num_food: 16
+fov: 4
