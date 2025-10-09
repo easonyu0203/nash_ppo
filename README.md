@@ -81,5 +81,5 @@ uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/robot_warehou
 
 uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/connector_10ag/nash_pg/default_run --step 1000 --env-config conf/env/connector/grid10_10ag.yaml --seed 100
 
-uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/lbf_large_5ag/ippo/default_run --step 3000 --env-config conf/env/lbf/large_6ag.yaml --seed 100
+uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/lbf_large_6ag/nash_pg/default_run --step 10000 --env-config conf/env/lbf/large_6ag.yaml --seed 100
 ```
