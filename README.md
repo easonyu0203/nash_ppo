@@ -54,25 +54,25 @@ uv run train/nash_pg.py \
 
 LBF
 ```bash
-uv run train/nash_pg.py \
+CUDA_VISIBLE_DEVICES=2 uv run train/nash_pg.py \
     algorithm.num_inner_update=1000 \
     algorithm.num_outer_update=20 \
     algorithm.mag_coef=0.05 \
     logging.save_interval=1000 \
     logging.log_interval=10 \
-    env=lbf/large_6ag \
-    agent=lbf/tiny \
-    run_name=lbf_large_6ag/nash_pg/default_run
+    env=lbf/tiny_3ag \
+    agent=lbf/large \
+    run_name=lbf_tiny_3ag/nash_pg/default_run
 
-uv run train/nash_pg.py \
+CUDA_VISIBLE_DEVICES=3 uv run train/nash_pg.py \
     algorithm.num_inner_update=1000 \
     algorithm.num_outer_update=20 \
     algorithm.mag_coef=0.0 \
     logging.save_interval=1000 \
     logging.log_interval=10 \
-    env=lbf/large_6ag \
-    agent=lbf/tiny \
-    run_name=lbf_large_6ag/ippo/default_run
+    env=lbf/tiny_3ag \
+    agent=lbf/large \
+    run_name=lbf_tiny_3ag/ippo/default_run
 ```
 
 ## Visiualize
