@@ -1,3 +1,0 @@
-agent_name: "lbf"
-output_dim: 6  # LBF actions: noop, up, down, left, right, load
-cnn_blocks: [[32, 32]]

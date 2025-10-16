@@ -1,0 +1,2 @@
+env_name: gymnasium
+gym_env_id: LunarLander-v3

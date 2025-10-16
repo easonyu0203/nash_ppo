@@ -1,0 +1,5 @@
+agent_name: "mlp"
+input_dim: 8
+output_dim: 4
+mlp_dim: 64
+num_hidden_layers: 2

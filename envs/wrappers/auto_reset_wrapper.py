@@ -1,19 +1,19 @@
-from typing import Tuple
+from typing import Any, Dict
 from functools import cached_property
-import chex
-import jax
 
-from envs.mytypes import BaseEnv, EnvState, TimeStep, Action
-from envs.myspaces import Space
+from gymnasium import Space
+
+from envs.mytypes import BaseEnv, TimeStep, Action
 from envs.wrappers.wrapper import Wrapper
 
 class AutoResetWrapper(Wrapper):
     """
-    Auto reset the env, with MODE=SAME_STEP
+    Auto reset the env, with MODE=DEFERRED
     """
 
     def __init__(self, env: BaseEnv):
         self._env = env
+        self._needs_reset = True
 
     @cached_property
     def num_agents(self) -> int:
@@ -27,30 +27,20 @@ class AutoResetWrapper(Wrapper):
     def observation_space(self) -> Space:
         return self._env.observation_space
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[EnvState, TimeStep]:
-        return self._env.reset(key)
+    def reset(self, seed: int = None, options: Dict[Any] = None) -> TimeStep:
+        self._needs_reset = False
+        return self._env.reset(seed=seed, options=options)
 
-    def step(self, state: EnvState, action: Action) -> Tuple[EnvState, TimeStep]:
-        state, timestep = self._env.step(state, action)
+    def step(self, action: Action) -> TimeStep:
+        # Deferred reset: if previous episode ended, reset before stepping
+        if self._needs_reset:
+            self._env.reset()
+            self._needs_reset = False
 
-        state, timestep = jax.lax.cond(
-            timestep.done,
-            self._auto_reset,
-            lambda s, t: (s, t), # not done -> continue as normal
-            state, timestep
-        )
+        timestep = self._env.step(action)
 
-        return state, timestep
-    
-    def _auto_reset(self, state: EnvState, timestep: TimeStep) -> Tuple[EnvState, TimeStep]:
-        """auto reset with mode=same_step"""
-        new_state, new_timestep = self._env.reset(state.key)
+        # Mark that we need to reset on next step if episode is done
+        if timestep.done.item():
+            self._needs_reset = True
 
-        return new_state, TimeStep(
-            reward=timestep.reward,
-            done=timestep.done,
-            observation=new_timestep.observation,
-            action_mask=new_timestep.action_mask,
-            step_cnt=new_timestep.step_cnt,
-            info=timestep.info, # NOTE: we use terminated step info, this mean the new episode first step info is gone
-        )
+        return timestep

@@ -1,9 +1,9 @@
-from typing import Any, Tuple
-import chex
+from typing import Any, Dict
 from functools import cached_property
 
-from envs.myspaces import Space
-from envs.mytypes import Action, BaseEnv, EnvState, TimeStep
+from gymnasium import Space
+
+from envs.mytypes import Action, BaseEnv, TimeStep
 
 
 class Wrapper(BaseEnv):
@@ -21,11 +21,11 @@ class Wrapper(BaseEnv):
         """Returns the wrapped env."""
         return self._env.unwrapped
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[EnvState, TimeStep]:
-        return self._env.reset(key)
+    def reset(self, seed: int = None, options: Dict[Any] = None) -> TimeStep:
+        return self._env.reset(seed=seed, options=options)
 
-    def step(self, state: EnvState, action: Action) -> Tuple[EnvState, TimeStep]:
-        return self._env.step(state, action)
+    def step(self, action: Action) -> TimeStep:
+        return self._env.step(action)
 
     @cached_property
     def observation_space(self) -> Space:
@@ -35,19 +35,16 @@ class Wrapper(BaseEnv):
     def action_space(self) -> Space:
         return self._env.action_space
 
-    def render(self, state: EnvState) -> Any:
-        return self._env.render(state)
+    def render(self) -> Any:
+        return self._env.render()
 
     def close(self) -> None:
-        """Perform any necessary cleanup.
-        """
         return self._env.close()
 
     def __enter__(self) -> 'Wrapper':
         return self
 
-    def __exit__(self, *args: Any) -> None:
-        del args  # Unused
+    def __exit__(self) -> None:
         self.close()
 
 

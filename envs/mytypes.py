@@ -1,30 +1,21 @@
 import abc
-import chex
-from typing import Any, Tuple, Union, Dict
+from dataclasses import dataclass
+import numpy as np
+from typing import Any, Union, Dict
 from functools import cached_property
+from gymnasium import Space
 
-from envs.myspaces import Space
+Observation = Union[np.ndarray, Dict[str, np.ndarray]]
+Action = Union[np.ndarray, Dict[str, np.ndarray]]
 
-Observation = Union[chex.Array, Dict[str, chex.Array]]
-Action = Union[chex.Array, Dict[str, chex.Array]]
-
-@chex.dataclass
+@dataclass
 class TimeStep:
-    reward: chex.Array # (num_agents, )
-    done: chex.Numeric # ()
+    reward: np.ndarray # (num_agents, )
+    done: np.ndarray # ()
     observation: Observation # (num_agents, *obs_shape, )
     action_mask: Action # (num_agents, *obs_shape, )
-    step_cnt: chex.Numeric # ()
-    info: Dict[str, chex.Array]
+    info: Dict[str, np.ndarray]
 
-
-@chex.dataclass
-class EnvState:
-    """This act as 'base' class of EnvState, but we don't actually inherit from this"""
-    key: chex.PRNGKey
-    current_player: chex.Numeric
-    done: chex.Numeric # when done == False, step should raise error
-    step_cnt: chex.Numeric
 
 class BaseEnv(abc.ABC):
     """
@@ -52,23 +43,18 @@ class BaseEnv(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def reset(self, key: chex.PRNGKey) -> Tuple[EnvState, TimeStep]:
+    def reset(self, seed: int = None, options: Dict[Any] = None) -> TimeStep:
         pass
 
     @abc.abstractmethod
-    def step(self, state: EnvState, action: Action) -> Tuple[EnvState, TimeStep]:
+    def step(self, action: Action) -> TimeStep:
         pass
 
     @property
     def unwrapped(self) -> 'BaseEnv':
         return self
 
-    def render(self, state: EnvState) -> Any:
-        """Render frames of the environment for a given state.
-
-        Args:
-            state: State object containing the current dynamics of the environment.
-        """
+    def render(self) -> Any:
         raise NotImplementedError("Render method not implemented for this environment.")
 
     def close(self) -> None:
@@ -77,6 +63,6 @@ class BaseEnv(abc.ABC):
     def __enter__(self) -> 'BaseEnv':
         return self
 
-    def __exit__(self, *args: Any) -> None:
+    def __exit__(self) -> None:
         """Calls :meth:`close()`."""
         self.close()

@@ -12,6 +12,7 @@ dependencies = [
     "chex>=0.1.91",
     "distrax>=0.1.7",
     "flax>=0.12.0",
+    "gymnasium>=1.2.1",
     "hydra-core>=1.3.2",
     "jax>=0.7.2",
     "jumanji>=1.1.1",
