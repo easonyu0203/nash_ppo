@@ -15,7 +15,7 @@ Usage:
                             logging.save_interval=2000 \
 
 Assumption:
-* Action space is Discrete
+* Action space is Discrete or MultiDiscrete
 * Action space and Observation space are same for all agents
 """
 

@@ -42,6 +42,39 @@ class Discrete(Space):
 		range_cond = jnp.logical_and(x >= 0, x < self.n)
 		return bool(range_cond)
 
+class MultiDiscrete(Space):
+	"""
+	Minimal jittable class for multi-discrete gymnax spaces.
+	Each dimension can have a different number of categories.
+	"""
+
+	def __init__(self, nvec: Sequence[int], dtype=jnp.int32):
+		"""
+		Args:
+			nvec: Vector of counts of each categorical variable.
+				  For example, nvec=[3, 5, 2] means 3 dimensions with
+				  categories [0,1,2], [0,1,2,3,4], and [0,1] respectively.
+		"""
+		self.nvec = jnp.array(nvec)
+		assert jnp.all(self.nvec > 0), "All elements of nvec must be positive"
+		self.shape = self.nvec.shape
+		self.dtype = dtype
+
+	def sample(self, rng: chex.PRNGKey) -> Observation:
+		"""Sample random action uniformly from each categorical variable."""
+		return jax.random.randint(
+			rng, shape=self.shape, minval=0, maxval=self.nvec, dtype=self.dtype
+		)
+
+	def contains(self, x: chex.Numeric) -> bool:
+		"""Check whether specific object is within space."""
+		# type_cond = isinstance(x, self.dtype)
+		# shape_cond = (x.shape == self.shape)
+		range_cond = jnp.logical_and(
+			jnp.all(x >= 0), jnp.all(x < self.nvec)
+		)
+		return bool(range_cond)
+
 class Box(Space):
 	"""
 	Minimal jittable class for array-shaped gymnax spaces.

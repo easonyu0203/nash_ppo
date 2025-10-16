@@ -57,7 +57,7 @@ def create_dataset(
         return x.reshape(batch_size, *x.shape[3:])
 
     return train_types.Dataset(
-        action=transitions.action.reshape(batch_size),
+        action=flatten_to_batch(transitions.action),
         value=transitions.value.reshape(batch_size),
         log_prob=transitions.log_prob.reshape(batch_size),
         observation=jax.tree.map(flatten_to_batch, transitions.observation),
@@ -82,6 +82,8 @@ def collect_and_process_trajectories(
 ) -> Tuple[env_types.EnvState, env_types.TimeStep, nnx.MultiMetric, train_types.Dataset]:
     """
     Collect trajectories and process them into a training dataset.
+
+    Supports discrete and multi-discrete action spaces.
 
     Data flow:
     1. collect_trajectories → (num_envs, num_steps, num_agents)
@@ -149,6 +151,7 @@ def collect_trajectories(
     Collect trajectories from multiple environments for a specified number of steps.
 
     All agents act simultaneously using a shared agent model.
+    Supports discrete and multi-discrete action spaces.
 
     Args:
         env: The environment instance implementing BaseEnv interface
