@@ -78,7 +78,7 @@ class GymnasiumWrapper(BaseEnv):
             # Should never reach here due to __init__ checks
             raise RuntimeError("Unsupported action space type")
 
-    def reset(self, seed: int = None, options: Dict[Any] = None) -> TimeStep:
+    def reset(self, seed: int = None, options: Dict[str, Any] = None) -> TimeStep:
         """Reset the environment and return initial timestep."""
         obs, info = self._env.reset(seed=seed, options=options)
 

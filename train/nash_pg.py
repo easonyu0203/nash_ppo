@@ -19,9 +19,10 @@ Assumption:
 * Action space and Observation space are same for all agents
 """
 
+from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Optional
 import logging
 import warnings
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -33,7 +34,6 @@ logging.getLogger('orbax').setLevel(logging.ERROR)
 # Suppress FutureWarning from JAX scatter operations (from Jumanji library)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-from functools import partial
 from tqdm import tqdm
 import jax
 from flax import nnx
@@ -45,15 +45,14 @@ from omegaconf import DictConfig
 from envs import create_env
 import envs.mytypes as env_types
 from agents import create_agent, BaseAgent
-from train.core import collect_and_process_trajectories, update_agent
+from train.core import update_agent, collect_trajectories, process_transitions, RolloutBuffer
 from train.loggers import create_logger, BaseLogger
 
 
 
-@chex.dataclass
+@dataclass
 class LearnerState:
     key: chex.PRNGKey
-    env_state: env_types.EnvState
     last_timestep: env_types.TimeStep
     agent: BaseAgent
     optimizer: nnx.Optimizer
@@ -62,35 +61,38 @@ class LearnerState:
     mag_agent: Optional[BaseAgent] # use for regularization
 
 
-@partial(nnx.jit, static_argnames=('env', 'config'))
-def single_training_step(
+def training_step(
         learner_state: LearnerState,
-        _: Any,
         env: env_types.BaseEnv,
-        config: DictConfig
-    ) -> Tuple[LearnerState, Any]:
+        config: DictConfig,
+        buffer: RolloutBuffer
+    ) -> LearnerState:
     """
-    Single training step for use with nnx.scan
+    Single training step: collect trajectories and update agent.
     """
     
     """collect and process trajactories """
-    learner_state.key, collect_key = jax.random.split(learner_state.key)
-    learner_state.env_state, learner_state.last_timestep, learner_state.rollout_metrics, dataset = collect_and_process_trajectories(
-        env = env,
-        agent = learner_state.agent,
-        env_state = learner_state.env_state,
-        last_timestep = learner_state.last_timestep,
-        metrics = learner_state.rollout_metrics,
-        key = collect_key,
-        num_envs = config.algorithm.num_envs,
-        num_steps = config.algorithm.num_steps,
+    learner_state.key, collect_key, update_key = jax.random.split(learner_state.key, 3)
+
+    # Collect trajectories (num_envs, num_steps, num_agents)
+    learner_state.last_timestep, transitions, next_value, next_done = collect_trajectories(
+        env=env,
+        agent=learner_state.agent,
+        last_timestep=learner_state.last_timestep,
+        key=collect_key,
+        num_steps=config.algorithm.num_steps,
+        buffer=buffer
+    )
+
+    learner_state.rollout_metrics, dataset = process_transitions(
+        transitions, learner_state.rollout_metrics,
+        next_value, next_done,
         gamma = config.algorithm.gamma,
         gae_gamma = config.algorithm.gae_gamma
     )
 
 
     """perform ppo update"""
-    learner_state.key, update_key = jax.random.split(learner_state.key)
     learner_state.agent, learner_state.optimizer, learner_state.train_metrics = update_agent(
         agent = learner_state.agent,
         mag_agent = learner_state.mag_agent,
@@ -105,23 +107,7 @@ def single_training_step(
         num_ppo_epoch = config.algorithm.num_ppo_epoch,
     )
 
-    return learner_state, None
-
-
-@partial(nnx.jit, static_argnames=('env', 'config'))
-def training_step(
-        learner_state: LearnerState,
-        env: env_types.BaseEnv,
-        config: DictConfig
-    ) -> LearnerState:
-    """Training step that runs log_interval iterations of single_training_step"""
-    learner_state, _ = nnx.scan(
-        partial(single_training_step, env=env, config=config),
-        length=config.logging.log_interval,
-    )(learner_state, None)
-
     return learner_state
-
 
 def log_metrics(learner_state: LearnerState, logger: BaseLogger, cur_num_update: int):
     """Log training and rollout metrics"""
@@ -148,11 +134,13 @@ def log_metrics(learner_state: LearnerState, logger: BaseLogger, cur_num_update:
 def main(config: DictConfig):
     key = jax.random.key(config.seed)
 
+    # Validate num_envs
+    if config.algorithm.num_envs < 1:
+        raise ValueError(f"num_envs must be >= 1, got {config.algorithm.num_envs}")
+
     # setup env
-    env = create_env(config.env)
-    key, init_key = jax.random.split(key)
-    init_keys = jax.random.split(init_key, config.algorithm.num_envs)
-    env_state, init_timestep = jax.vmap(env.reset)(init_keys) # (num_envs, )
+    env = create_env(config.env, num_env=config.algorithm.num_envs)
+    init_timestep = env.reset(seed=config.seed)
 
     # setup agent
     key, agent_key = jax.random.split(key)
@@ -179,13 +167,31 @@ def main(config: DictConfig):
     key, learner_key = jax.random.split(key)
     learner_state = LearnerState(
         key=learner_key,
-        env_state=env_state,
         last_timestep=init_timestep,
         agent=agent,
         optimizer=optimizer,
         train_metrics=train_metrics,
         rollout_metrics=rollout_metrics,
         mag_agent=nnx.clone(agent), # init as the same
+    )
+
+    # create buffer for CPU-side rollout storage
+    obs_shape = env.observation_space.shape
+
+    if hasattr(env.action_space, 'n'):  # Discrete
+        action_shape = ()
+        action_mask_shape = (env.action_space.n,)
+    else:  # MultiDiscrete
+        action_shape = env.action_space.nvec.shape
+        action_mask_shape = env.action_space.nvec.shape
+
+    buffer = RolloutBuffer(
+        num_envs=config.algorithm.num_envs,
+        num_steps=config.algorithm.num_steps,
+        num_agents=env.num_agents,
+        obs_shape=obs_shape,
+        action_shape=action_shape,
+        action_mask_shape=action_mask_shape
     )
 
     # setup logger
@@ -204,7 +210,8 @@ def main(config: DictConfig):
                 cur_num_update = cur_num_outer_update * config.algorithm.num_inner_update + cur_num_inner_update
                 
                 # training step for `log_interval` steps
-                learner_state: LearnerState = training_step(learner_state, env, config)
+                for _ in range(config.logging.log_interval):
+                    learner_state = training_step(learner_state, env=env, config=config, buffer=buffer)
 
                 # update progress bar
                 cur_num_update += config.logging.log_interval

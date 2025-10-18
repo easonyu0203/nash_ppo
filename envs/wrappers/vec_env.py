@@ -51,7 +51,7 @@ class DummyVecEnv(BaseEnv):
     def action_space(self) -> Space:
         return self.envs[0].action_space
 
-    def reset(self, seed: int = None, options: Dict[Any] = None) -> TimeStep:
+    def reset(self, seed: int = None, options: Dict[str, Any] = None) -> TimeStep:
         """
         Reset all environments.
 

@@ -1,5 +1,6 @@
 from typing import Any, Dict
 from functools import cached_property
+from dataclasses import replace
 
 from gymnasium import Space
 
@@ -8,12 +9,11 @@ from envs.wrappers.wrapper import Wrapper
 
 class AutoResetWrapper(Wrapper):
     """
-    Auto reset the env, with MODE=DEFERRED
+    Auto reset the env, with MODE=SAME
     """
 
     def __init__(self, env: BaseEnv):
         self._env = env
-        self._needs_reset = True
 
     @cached_property
     def num_agents(self) -> int:
@@ -27,20 +27,18 @@ class AutoResetWrapper(Wrapper):
     def observation_space(self) -> Space:
         return self._env.observation_space
 
-    def reset(self, seed: int = None, options: Dict[Any] = None) -> TimeStep:
-        self._needs_reset = False
+    def reset(self, seed: int = None, options: Dict[str, Any] = None) -> TimeStep:
         return self._env.reset(seed=seed, options=options)
 
     def step(self, action: Action) -> TimeStep:
-        # Deferred reset: if previous episode ended, reset before stepping
-        if self._needs_reset:
-            self._env.reset()
-            self._needs_reset = False
-
         timestep = self._env.step(action)
 
-        # Mark that we need to reset on next step if episode is done
         if timestep.done.item():
-            self._needs_reset = True
+            new_timestep = self._env.reset()
+            timestep = replace(
+                timestep,
+                observation=new_timestep.observation,
+                action_mask=new_timestep.action_mask,
+            )
 
         return timestep

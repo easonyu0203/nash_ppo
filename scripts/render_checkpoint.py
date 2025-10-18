@@ -2,7 +2,7 @@
 Render one episode using a trained agent checkpoint.
 
 Usage:
-    uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/robot_warehouse/nash_pg/default_run --step 100000 --env-config conf/env/robot_warehouse/tiny_4ag.yaml --seed 100 --fps 4
+    uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/gym/lunar_lander/ippo/default_run --step 2000 --env-config conf/env/gym/lunar_lander.yaml --seed 100 --fps 60
 """
 
 import os
@@ -14,27 +14,14 @@ logging.getLogger('absl').setLevel(logging.ERROR)
 logging.getLogger('orbax').setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", message=".*Sharding info not provided.*")
 import argparse
-from functools import partial
 import time
 import jax
 import jax.numpy as jnp
+import numpy as np
 from omegaconf import OmegaConf
 
 from envs import create_env
 from agents import BaseAgent
-
-
-@partial(jax.jit, static_argnames=('env', 'agent'))
-def step_episode(env, agent, env_state, timestep, key):
-    """JIT-compiled single step for speed."""
-    # Get action
-    key, action_key = jax.random.split(key)
-    action = agent.get_action(timestep.observation, action_key, timestep.action_mask)
-
-    # Step environment
-    env_state, next_timestep = env.step(env_state, action)
-
-    return env_state, next_timestep, key
 
 
 def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int = 0, fps: float = 4.0):
@@ -58,18 +45,17 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
     env_config = OmegaConf.load(env_config_path)
     print(f"Environment config: {OmegaConf.to_yaml(env_config)}")
 
-    # Create environment
-    env = create_env(env_config, auto_reset=False)
+    # Create environment (without auto-reset for rendering)
+    env = create_env(env_config, auto_reset=False, render_mode="human")
     print(f"Environment: {env}")
     print(f"Num agents: {env.num_agents}")
 
     # Reset environment
-    key, reset_key = jax.random.split(key)
-    env_state, timestep = env.reset(reset_key)
+    timestep = env.reset(seed=seed)
 
-    # Run episode step by step with rendering
+    # Episode tracking
     print(f"\nRunning episode with rendering at {fps} FPS...")
-    episode_reward = jnp.zeros(env.num_agents)
+    episode_reward = np.zeros(env.num_agents)
     step_count = 0
     max_steps = 1000  # Safety limit
 
@@ -77,9 +63,9 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
     frame_delay = 1.0 / fps if fps > 0 else 0
     last_frame_time = time.time()
 
+    # Try to render initial state
     try:
-        # Render initial state
-        env.render(env_state)
+        env.render()
         if frame_delay > 0:
             time.sleep(frame_delay)
             last_frame_time = time.time()
@@ -87,16 +73,24 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
         print("Warning: render() not implemented for this environment")
         return
 
-    while not timestep.done and step_count < max_steps:
-        # Take one step (JIT-compiled)
-        env_state, timestep, key = step_episode(env, agent, env_state, timestep, key)
+    # Run episode
+    while not timestep.done.item() and step_count < max_steps:
+        # Get action from agent
+        key, action_key = jax.random.split(key)
+        action_jax = agent.get_action(timestep.observation, action_key, timestep.action_mask)
+
+        # Convert action to numpy for env.step()
+        action_np = np.array(action_jax)
+
+        # Step environment
+        timestep = env.step(action_np)
 
         # Accumulate reward from this step
-        episode_reward = episode_reward + timestep.reward
+        episode_reward = episode_reward + np.array(timestep.reward)
         step_count += 1
 
         # Render current state
-        env.render(env_state)
+        env.render()
 
         # Cap FPS by sleeping if needed
         if frame_delay > 0:
@@ -112,6 +106,9 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
     # Format rewards with 2 decimal places
     reward_str = ", ".join([f"{float(r):.2f}" for r in episode_reward])
     print(f"Episode return per agent: [{reward_str}]")
+
+    # Close environment
+    env.close()
 
     # Wait for user to press Enter before closing
     input("\nPress Enter to close...")

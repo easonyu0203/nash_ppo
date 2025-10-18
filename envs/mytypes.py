@@ -43,7 +43,7 @@ class BaseEnv(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def reset(self, seed: int = None, options: Dict[Any] = None) -> TimeStep:
+    def reset(self, seed: int = None, options: Dict[str, Any] = None) -> TimeStep:
         pass
 
     @abc.abstractmethod

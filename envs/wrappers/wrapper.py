@@ -21,7 +21,7 @@ class Wrapper(BaseEnv):
         """Returns the wrapped env."""
         return self._env.unwrapped
 
-    def reset(self, seed: int = None, options: Dict[Any] = None) -> TimeStep:
+    def reset(self, seed: int = None, options: Dict[str, Any] = None) -> TimeStep:
         return self._env.reset(seed=seed, options=options)
 
     def step(self, action: Action) -> TimeStep:
