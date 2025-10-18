@@ -1,0 +1,5 @@
+agent_name: "mlp"
+input_dim: 21  # 19 (max obs after padding) + 2 (agent IDs for 2 agents)
+output_dim: 5  # Discrete(5) actions
+mlp_dim: 64
+num_hidden_layers: 2

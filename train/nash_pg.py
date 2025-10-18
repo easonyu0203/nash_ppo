@@ -27,6 +27,9 @@ import logging
 import warnings
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+
 # Suppress verbose Orbax checkpoint logging
 logging.getLogger('absl').setLevel(logging.ERROR)
 logging.getLogger('orbax').setLevel(logging.ERROR)

@@ -1,5 +1,6 @@
 from agents.base_agent import BaseAgent
 from agents.mlp_agent import MLPAgent
+from agents.image_agent import ImageAgent
 
 import chex
 from omegaconf import DictConfig, OmegaConf
@@ -9,6 +10,7 @@ from typing import Type
 # Registry mapping agent_name to agent class
 _AGENT_REGISTRY = {
     "mlp": MLPAgent,
+    "image": ImageAgent,
     # Add more agents here as needed
 }
 

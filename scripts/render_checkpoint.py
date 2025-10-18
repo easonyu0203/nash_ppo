@@ -2,7 +2,7 @@
 Render one episode using a trained agent checkpoint.
 
 Usage:
-    uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/gym/lunar_lander/ippo/default_run --step 2000 --env-config conf/env/gym/lunar_lander.yaml --seed 100 --fps 60
+    uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/mpe/simple_tag/nash_pg/default_run --step 2000 --env-config conf/env/mpe/simple_tag.yaml --seed 100 --fps 30
 """
 
 import os
@@ -16,15 +16,21 @@ warnings.filterwarnings("ignore", message=".*Sharding info not provided.*")
 import argparse
 import time
 import jax
-import jax.numpy as jnp
 import numpy as np
 from omegaconf import OmegaConf
 
 from envs import create_env
 from agents import BaseAgent
 
+# Import pygame for event handling (needed for window display)
+try:
+    import pygame
+    PYGAME_AVAILABLE = True
+except ImportError:
+    PYGAME_AVAILABLE = False
 
-def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int = 0, fps: float = 4.0):
+
+def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int = 0, fps: float = 60.0):
     """
     Load a checkpoint and play one episode with rendering.
 
@@ -33,7 +39,7 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
         step: Training step to load
         env_config_path: Path to environment config yaml
         seed: Random seed for episode
-        fps: Frames per second for rendering (default: 4.0)
+        fps: Frames per second for rendering (default: 60.0)
     """
     # Load agent from checkpoint
     print(f"Loading checkpoint from {checkpoint_dir} at step {step}...")
@@ -66,6 +72,13 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
     # Try to render initial state
     try:
         env.render()
+        # Process pygame events to keep window responsive and visible
+        if PYGAME_AVAILABLE:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    print("Window closed by user")
+                    env.close()
+                    return
         if frame_delay > 0:
             time.sleep(frame_delay)
             last_frame_time = time.time()
@@ -91,6 +104,14 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
 
         # Render current state
         env.render()
+
+        # Process pygame events to keep window responsive and visible
+        if PYGAME_AVAILABLE:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    print("\nWindow closed by user")
+                    env.close()
+                    return
 
         # Cap FPS by sleeping if needed
         if frame_delay > 0:
@@ -143,8 +164,8 @@ def main():
     parser.add_argument(
         "--fps",
         type=float,
-        default=4.0,
-        help="Frames per second for rendering (default: 4.0)"
+        default=60.0,
+        help="Frames per second for rendering (default: 60.0)"
     )
 
     args = parser.parse_args()

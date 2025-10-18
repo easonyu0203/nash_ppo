@@ -1,0 +1,6 @@
+agent_name: "image"
+input_shape: [84, 84, 5]  # 84x84 image with 3 RGB channels + 2 agent ID channels
+output_dim: 18  # Discrete(18) actions
+cnn_channels: [32, 64, 128, 256]  # 4 CNN layers
+kernel_size: 3
+pool_size: 2

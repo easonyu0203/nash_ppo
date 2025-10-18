@@ -28,6 +28,10 @@ class Wrapper(BaseEnv):
         return self._env.step(action)
 
     @cached_property
+    def num_agents(self) -> int:
+        return self._env.num_agents
+
+    @cached_property
     def observation_space(self) -> Space:
         return self._env.observation_space
 

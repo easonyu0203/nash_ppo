@@ -1,34 +1,15 @@
 from omegaconf import DictConfig
-import gymnasium as gym
 from envs.wrappers import AutoResetWrapper, GymnasiumWrapper, DummyVecEnv
-
-
-def create_gymnasium_env(env_config: DictConfig, **kwargs):
-    """Create a Gymnasium environment wrapped for BaseEnv interface.
-
-    Args:
-        env_config: Config with 'gym_env_id' field specifying the Gymnasium environment ID
-        **kwargs: Additional arguments to pass to gym.make (e.g., render_mode="human")
-
-    Returns:
-        GymnasiumWrapper instance
-    """
-    env_id = env_config.get("gym_env_id")
-    if env_id is None:
-        raise ValueError("env_config must contain 'gym_env_id' field for gymnasium environments")
-
-    # Create the gymnasium environment with any additional kwargs
-    gym_env = gym.make(env_id, **kwargs)
-
-    # Wrap it for BaseEnv interface
-    return GymnasiumWrapper(gym_env)
+from envs.gymnasium_envs import create_gymnasium_env
+from envs.pettingzoo_envs import create_mpe_env, create_atari_env
 
 
 # Registry mapping env_name to creator function
 _ENV_REGISTRY = {
     "gymnasium": create_gymnasium_env,
+    "mpe": create_mpe_env,
+    "atari": create_atari_env,
     # Add more environments here as needed
-    # "custom_env": create_custom_env,
 }
 
 

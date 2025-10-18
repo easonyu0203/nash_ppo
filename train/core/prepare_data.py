@@ -270,11 +270,11 @@ def process_transitions(
         transitions, advantages, target_values, batch_size
     )
 
-    # Log metrics - mean reward across agents
-    mean_reward = transitions.reward.mean(axis=1)  # (num_envs, num_steps)
+    # Log metrics - agent 0 reward only
+    ag0_reward = transitions.reward[:, 0, :]  # (num_envs, num_steps)
     metrics.update(
         inverse_eps_len=transitions.is_new_eps.reshape(num_envs * num_steps),
-        reward=mean_reward.reshape(num_envs * num_steps)
+        reward=ag0_reward.reshape(num_envs * num_steps)
     )
 
     return metrics, dataset

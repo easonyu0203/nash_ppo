@@ -1,0 +1,3 @@
+env_name: atari
+atari_env_name: boxing_v2
+image_size: 84

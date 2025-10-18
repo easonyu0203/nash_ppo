@@ -86,21 +86,21 @@ uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/lbf_tiny_3ag/
 
 
 JAX_PLATFORMS=cpu  uv run train/nash_pg.py \
-    algorithm.num_inner_update=1000 \
+    algorithm.num_inner_update=250 \
     algorithm.num_outer_update=10 \
     algorithm.mag_coef=0.05 \
-    logging.save_interval=1000 \
-    logging.log_interval=10 \
-    env=gym/lunar_lander \
-    agent=gym/lunar_lander \
-    run_name=gym/lunar_lander/nash_pg/default_run
+    logging.save_interval=100 \
+    logging.log_interval=1 \
+    env=mpe/simple_tag \
+    agent=mpe/simple_tag \
+    run_name=mpe/simple_tag/nash_pg/default_run
 
 JAX_PLATFORMS=cpu  uv run train/nash_pg.py \
-    algorithm.num_inner_update=1000 \
+    algorithm.num_inner_update=250 \
     algorithm.num_outer_update=10 \
     algorithm.mag_coef=0.0 \
     logging.save_interval=100 \
-    logging.log_interval=10 \
-    env=gym/lunar_lander \
-    agent=gym/lunar_lander \
-    run_name=gym/lunar_lander/ippo/default_run
+    logging.log_interval=1 \
+    env=mpe/simple_tag \
+    agent=mpe/simple_tag \
+    run_name=mpe/simple_tag/ippo/default_run
