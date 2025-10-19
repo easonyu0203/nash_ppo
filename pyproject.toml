@@ -9,18 +9,17 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "autorom[accept-rom-license]>=0.6.1",
     "chex>=0.1.91",
     "distrax>=0.1.7",
     "flax>=0.12.0",
     "gymnasium[box2d,classic-control]>=1.2.1",
     "hydra-core>=1.3.2",
-    "jax>=0.7.2",
-    "jumanji>=1.1.1",
+    "jax[cuda]>=0.7.2; sys_platform == 'linux'",
+    "jax>=0.7.2; sys_platform == 'darwin'",
     "mpe2>=0.0.1",
     "omegaconf>=2.3.0",
     "orbax>=0.1.9",
-    "pettingzoo[atari,mpe]>=1.25.0",
+    "pettingzoo[mpe]>=1.25.0",
     "setuptools<81",
     "supersuit>=3.10.0",
     "tensorboard>=2.20.0",
