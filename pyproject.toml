@@ -25,7 +25,13 @@ dependencies = [
     "tensorboard>=2.20.0",
     "torch>=2.8.0",
     "tqdm>=4.67.1",
+    "mlagents-envs",
+    "mlagents",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["agents", "envs", "train", "scripts"]
+
+[tool.uv.sources]
+mlagents-envs = { git = "https://github.com/easonyu0203/ml-agents.git", subdirectory = "ml-agents-envs" }
+mlagents = { git = "https://github.com/easonyu0203/ml-agents.git", subdirectory = "ml-agents" }
