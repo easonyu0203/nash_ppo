@@ -87,7 +87,7 @@ class GymnasiumWrapper(BaseEnv):
 
         return TimeStep(
             reward=np.zeros(self.num_agents, dtype=np.float32),
-            done=np.array(False),
+            done=np.array([False], dtype=bool),
             observation=obs_wrapped,
             action_mask=self._default_action_mask,
             info=info,
@@ -111,7 +111,7 @@ class GymnasiumWrapper(BaseEnv):
 
         return TimeStep(
             reward=np.array([reward], dtype=np.float32),
-            done=np.array(done),
+            done=np.array([done], dtype=bool),
             observation=obs_wrapped,
             action_mask=self._default_action_mask,
             info=info,

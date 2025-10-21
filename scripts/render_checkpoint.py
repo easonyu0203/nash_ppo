@@ -86,8 +86,8 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
         print("Warning: render() not implemented for this environment")
         return
 
-    # Run episode
-    while not timestep.done.item() and step_count < max_steps:
+    # Run episode (continue while not all agents are done)
+    while not timestep.done.all() and step_count < max_steps:
         # Get action from agent
         key, action_key = jax.random.split(key)
         action_jax = agent.get_action(timestep.observation, action_key, timestep.action_mask)

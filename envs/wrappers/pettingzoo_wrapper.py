@@ -264,7 +264,7 @@ class PettingZooWrapper(BaseEnv):
 
         return TimeStep(
             reward=np.zeros(self.num_agents, dtype=np.float32),
-            done=np.array(False),
+            done=np.zeros(self.num_agents, dtype=bool),
             observation=obs_array,
             action_mask=self._default_action_mask,
             info=infos,
@@ -287,16 +287,15 @@ class PettingZooWrapper(BaseEnv):
         obs_array = self._pad_observations(observations)
         reward_array = self._dict_to_array(rewards)
 
-        # Episode ends when all agents are done (terminated or truncated)
-        # PettingZoo removes agents from observations when they're done
-        done = len(observations) == 0 or all(
+        # Create per-agent done array
+        done_array = np.array([
             terminations.get(agent, False) or truncations.get(agent, False)
             for agent in self._agents
-        )
+        ], dtype=bool)
 
         return TimeStep(
             reward=reward_array.astype(np.float32),
-            done=np.array(done),
+            done=done_array,
             observation=obs_array,
             action_mask=self._default_action_mask,
             info=infos,

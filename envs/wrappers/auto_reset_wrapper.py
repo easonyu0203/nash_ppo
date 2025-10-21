@@ -33,7 +33,8 @@ class AutoResetWrapper(Wrapper):
     def step(self, action: Action) -> TimeStep:
         timestep = self._env.step(action)
 
-        if timestep.done.item():
+        # Reset only if all agents are done
+        if timestep.done.all():
             new_timestep = self._env.reset()
             timestep = replace(
                 timestep,
