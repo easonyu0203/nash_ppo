@@ -126,7 +126,7 @@ def update_agent(
         grad = nnx.grad(calculate_n_log_loss)(carry.agent, batch, carry.metrics)
 
         # update agent, optimizer state (inplace update)
-        carry.optimizer.update(carry.agent, grad)
+        carry.optimizer.update(grad)
 
         return carry, 0
 

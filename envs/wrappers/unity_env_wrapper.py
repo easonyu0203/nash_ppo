@@ -10,7 +10,7 @@ import gymnasium.spaces as gym_spaces
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
 from mlagents_envs.side_channel.environment_parameters_channel import EnvironmentParametersChannel
-from mlagents_envs.base_env import ActionTuple, DecisionSteps, TerminalSteps, BehaviorSpec
+from mlagents_envs.base_env import ActionTuple, BehaviorSpec
 
 from envs.mytypes import BaseEnv, TimeStep, Action
 
@@ -64,7 +64,6 @@ class UnityEnvWrapper(BaseEnv):
 
         # Initialize side channels for configuration
         self._engine_channel = EngineConfigurationChannel()
-        self._env_params_channel = EnvironmentParametersChannel()
 
         # Set engine configuration
         self._engine_channel.set_configuration_parameters(
@@ -75,19 +74,14 @@ class UnityEnvWrapper(BaseEnv):
             target_frame_rate=-1,  # Unlimited
         )
 
-        # Set number of areas parameter (Unity will read this)
-        self._env_params_channel.set_float_parameter("num_areas", float(num_areas))
-
-        # Initialize Unity environment
-        side_channels = [self._engine_channel, self._env_params_channel]
-
         self._unity_env = UnityEnvironment(
             file_name=file_name,
             worker_id=worker_id,
             base_port=base_port,
             seed=seed,
             no_graphics=no_graphics,
-            side_channels=side_channels,
+            side_channels=[self._engine_channel],
+            num_areas=num_areas,
             additional_args=additional_args,
         )
 
