@@ -15,7 +15,7 @@ class Transition:
     - reward: shape (num_agents,)
     - observation, action_mask: shape (num_agents, ...)
     """
-    is_new_eps: chex.Array      # bool, episode boundaries
+    done: chex.Array      # bool, episode boundaries
     action: chex.Array          # agent actions, shape (num_agents,)
     value: chex.Array           # critic value estimates, shape (num_agents,)
     reward: chex.Array          # environment rewards per agent, shape (num_agents,)
@@ -40,3 +40,5 @@ class Dataset:
     action_mask: chex.Array     # valid action masks
     advantage: chex.Array       # GAE advantages
     target_value: chex.Array    # critic training targets
+    valid_mask: chex.Array      # bool mask: True if transition is valid for training
+                                # False if state was terminal/truncated (invalid transition)

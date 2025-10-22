@@ -247,7 +247,11 @@ class UnityEnvWrapper(BaseEnv):
             (self._num_areas, self._num_agents_per_area),
             dtype=np.float32
         )
-        self._done_buffer = np.zeros(
+        self._terminated_buffer = np.zeros(
+            (self._num_areas, self._num_agents_per_area),
+            dtype=bool
+        )
+        self._truncated_buffer = np.zeros(
             (self._num_areas, self._num_agents_per_area),
             dtype=bool
         )
@@ -301,25 +305,30 @@ class UnityEnvWrapper(BaseEnv):
 
     def _empty_batched_buffers(self):
         """
-        Zero out and return pre-allocated buffers for observations, rewards, dones, action_mask.
+        Zero out and return pre-allocated buffers for observations, rewards, terminated, truncated, action_mask.
 
         This avoids repeated memory allocations on every step by reusing buffers.
         """
         # Zero out the buffers
         self._obs_buffer.fill(0)
         self._reward_buffer.fill(0)
-        self._done_buffer.fill(False)
+        self._terminated_buffer.fill(False)
+        self._truncated_buffer.fill(False)
         # Action mask buffer already contains all True values and doesn't need resetting
         # since it represents the default "all actions valid" state
 
-        return self._obs_buffer, self._reward_buffer, self._done_buffer, self._action_mask_buffer
+        return self._obs_buffer, self._reward_buffer, self._terminated_buffer, self._truncated_buffer, self._action_mask_buffer
 
     def _collect_steps(self):
         """
         Collect current DecisionSteps and TerminalSteps from Unity and populate
         batched arrays using the agent_id -> (area, local_idx) mapping.
+
+        Uses terminal_steps.interrupted to distinguish termination vs truncation:
+        - interrupted=True → truncated (hit max steps)
+        - interrupted=False → terminated (natural episode end)
         """
-        observations, rewards, dones, action_masks = self._empty_batched_buffers()
+        observations, rewards, terminated, truncated, action_masks = self._empty_batched_buffers()
 
         # iterate behaviors and combine decision + terminal steps
         for behavior_name in self._behavior_names:
@@ -339,12 +348,14 @@ class UnityEnvWrapper(BaseEnv):
                     area_idx, local_idx = self._agent_id_to_idx[aid_int]
                     observations[area_idx, local_idx] = obs_arr[i]
                     rewards[area_idx, local_idx] = float(rew_arr[i])
-                    dones[area_idx, local_idx] = False
+                    terminated[area_idx, local_idx] = False
+                    truncated[area_idx, local_idx] = False
 
-            # TerminalSteps (agents that just terminated)
+            # TerminalSteps (agents that just terminated/truncated)
             if len(terminal_steps) > 0:
                 obs_arr = terminal_steps.obs[0]
                 rew_arr = terminal_steps.reward
+                interrupted_arr = terminal_steps.interrupted  # True = truncated, False = terminated
                 for i, aid in enumerate(terminal_steps.agent_id):
                     aid_int = int(aid)
                     if aid_int not in self._agent_id_to_idx:
@@ -352,9 +363,17 @@ class UnityEnvWrapper(BaseEnv):
                     area_idx, local_idx = self._agent_id_to_idx[aid_int]
                     observations[area_idx, local_idx] = obs_arr[i]
                     rewards[area_idx, local_idx] = float(rew_arr[i])
-                    dones[area_idx, local_idx] = True
+                    # Use interrupted flag to distinguish termination vs truncation
+                    if interrupted_arr[i]:
+                        # Episode was interrupted (hit max steps) → truncated
+                        terminated[area_idx, local_idx] = False
+                        truncated[area_idx, local_idx] = True
+                    else:
+                        # Episode ended naturally → terminated
+                        terminated[area_idx, local_idx] = True
+                        truncated[area_idx, local_idx] = False
 
-        return observations, rewards, dones, action_masks
+        return observations, rewards, terminated, truncated, action_masks
 
     # ----------------- Public API -----------------
     def reset(
@@ -371,11 +390,12 @@ class UnityEnvWrapper(BaseEnv):
         self._build_agent_mapping_from_current_steps()
 
         # Collect initial state (should be only decision steps, no terminals)
-        observations, rewards, dones, action_masks = self._collect_steps()
+        observations, rewards, terminated, truncated, action_masks = self._collect_steps()
 
         return TimeStep(
             reward=rewards,
-            done=dones,
+            terminated=terminated,
+            truncated=truncated,
             observation=observations,
             action_mask=action_masks,
             info={}
@@ -428,12 +448,13 @@ class UnityEnvWrapper(BaseEnv):
         # Now advance Unity
         self._unity_env.step()
 
-        # Collect the resulting steps (observations, rewards, dones)
-        observations, rewards, dones, action_masks = self._collect_steps()
+        # Collect the resulting steps (observations, rewards, terminated, truncated)
+        observations, rewards, terminated, truncated, action_masks = self._collect_steps()
 
         return TimeStep(
             reward=rewards,
-            done=dones,
+            terminated=terminated,
+            truncated=truncated,
             observation=observations,
             action_mask=action_masks,
             info={}

@@ -91,12 +91,12 @@ JAX_PLATFORMS=cpu uv run train/nash_pg.py \
     algorithm.mag_coef=0.0 \
     logging.save_interval=-1 \
     logging.log_interval=1 \
-    env=unity/editor \
-    agent=unity/3d_ball \
-    run_name=unity/3d_ball/ippo/norm_log_prob
+    env=gym/acrobot \
+    agent=gym/acrobot \
+    run_name=gym/acrobot/ippo/testing1
 
 JAX_PLATFORMS=cpu uv run train/nash_pg.py \
-    algorithm.num_inner_update=10 \
+    algorithm.num_inner_update=100 \
     algorithm.num_outer_update=10 \
     algorithm.num_envs=1024 \
     algorithm.num_steps=64 \

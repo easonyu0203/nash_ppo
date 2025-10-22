@@ -64,6 +64,10 @@ def update_agent(
         """calculate loss and log to metrics"""
         dists = agent.get_action_distribution(dataset.observation, dataset.action_mask)
 
+        # Extract validity mask and compute number of valid samples
+        valid_mask = dataset.valid_mask.astype(jnp.float32)  # Convert bool to float for masking
+        num_valid = jnp.maximum(jnp.sum(valid_mask), 1.0)  # Avoid division by zero
+
         """actor loss"""
         log_prob = dists.log_prob(dataset.action)
 
@@ -82,49 +86,57 @@ def update_agent(
         log_prob_normalized = log_prob / norm_factor
         old_log_prob_normalized = dataset.log_prob / norm_factor
 
-        # normalize advantage
-        advantage_mean = jnp.mean(dataset.advantage)
-        advantage_std = jnp.std(dataset.advantage)
+        # normalize advantage (only over valid samples)
+        masked_advantage = dataset.advantage * valid_mask
+        advantage_mean = jnp.sum(masked_advantage) / num_valid
+        advantage_var = jnp.sum(valid_mask * jnp.square(dataset.advantage - advantage_mean)) / num_valid
+        advantage_std = jnp.sqrt(advantage_var)
         dataset.advantage = (dataset.advantage - advantage_mean) / (advantage_std + 1e-8)
 
-        # ppo loss (use normalized log_prob)
+        # ppo loss (use normalized log_prob, masked mean)
         log_ratio = log_prob_normalized - old_log_prob_normalized
         ratio = jnp.exp(log_ratio)
         ppo_loss1 = ratio * dataset.advantage
         ppo_loss2 = jnp.clip(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * dataset.advantage
-        ppo_loss = -jnp.mean(jnp.minimum(ppo_loss1, ppo_loss2))
+        ppo_loss_per_sample = -jnp.minimum(ppo_loss1, ppo_loss2)
+        ppo_loss = jnp.sum(ppo_loss_per_sample * valid_mask) / num_valid
 
-        # entropy loss (already averaged over batch, no additional normalization needed)
-        entropy_loss = -jnp.mean(dists.entropy())
+        # entropy loss (masked mean)
+        entropy_per_sample = dists.entropy()
+        entropy_loss = -jnp.sum(entropy_per_sample * valid_mask) / num_valid
 
-        # magnet loss
+        # magnet loss (masked mean)
         mag_loss, mag_kl = 0, 0
         if mag_agent is not None:
             mag_dists = mag_agent.get_action_distribution(dataset.observation, dataset.action_mask)
             kl_div = dists.kl_divergence(mag_dists)
             # Normalize KL divergence by action dimensions
             kl_div_normalized = kl_div / norm_factor
-            mag_kl = jnp.mean(kl_div_normalized)
+            mag_kl = jnp.sum(kl_div_normalized * valid_mask) / num_valid
             mag_loss = mag_kl
 
         # total actor loss
         actor_loss = ppo_loss + ent_coef * entropy_loss + mag_coef * mag_loss
 
-        """critic loss"""
+        """critic loss (masked mean)"""
         values = agent.get_value(dataset.observation)
         values_clipped = dataset.value + jnp.clip(values - dataset.value, -clip_eps, clip_eps)
         critic_loss1 = jnp.square(values - dataset.target_value)
         critic_loss2 = jnp.square(values_clipped - dataset.target_value)
-        critic_loss = 0.5 * jnp.mean(jnp.maximum(critic_loss1, critic_loss2))
+        critic_loss_per_sample = 0.5 * jnp.maximum(critic_loss1, critic_loss2)
+        critic_loss = jnp.sum(critic_loss_per_sample * valid_mask) / num_valid
 
-        """logging"""
+        """logging (all metrics computed only over valid samples)"""
         total_loss = actor_loss + critic_loss
-        approx_kl = jnp.mean((ratio - 1) - log_ratio)
-        clip_frac = jnp.mean((jnp.abs(ratio - 1.0) > clip_eps).astype('float32'))
+        approx_kl = jnp.sum(((ratio - 1) - log_ratio) * valid_mask) / num_valid
+        clip_frac = jnp.sum((jnp.abs(ratio - 1.0) > clip_eps).astype('float32') * valid_mask) / num_valid
 
-        # explained variance calculation
-        target_var = jnp.var(dataset.target_value)
-        residual_var = jnp.var(dataset.target_value - values)
+        # explained variance calculation (only over valid samples)
+        masked_target = dataset.target_value * valid_mask
+        masked_values = values * valid_mask
+        target_mean = jnp.sum(masked_target) / num_valid
+        target_var = jnp.sum(valid_mask * jnp.square(dataset.target_value - target_mean)) / num_valid
+        residual_var = jnp.sum(valid_mask * jnp.square(dataset.target_value - values)) / num_valid
         explained_var = jnp.maximum(1 - residual_var / (target_var + 1e-8), jnp.float32(0))
 
         metrics.update(

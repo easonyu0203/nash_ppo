@@ -59,7 +59,8 @@ class DummyVecEnv(BaseEnv):
             TimeStep with vectorized fields:
                 - observation: (num_envs, num_agents, *obs_shape)
                 - reward: (num_envs, num_agents)
-                - done: (num_envs,)
+                - terminated: (num_envs, num_agents)
+                - truncated: (num_envs, num_agents)
                 - action_mask: (num_envs, num_agents, *action_shape)
         """
         timesteps = []
@@ -96,8 +97,9 @@ class DummyVecEnv(BaseEnv):
         # Stack rewards
         rewards = np.stack([ts.reward for ts in timesteps], axis=0)
 
-        # Stack done flags (each env has a single done flag)
-        dones = np.stack([ts.done for ts in timesteps], axis=0)
+        # Stack terminated and truncated flags
+        terminated = np.stack([ts.terminated for ts in timesteps], axis=0)
+        truncated = np.stack([ts.truncated for ts in timesteps], axis=0)
 
         # Stack action masks
         action_masks = np.stack([ts.action_mask for ts in timesteps], axis=0)
@@ -111,7 +113,8 @@ class DummyVecEnv(BaseEnv):
         return TimeStep(
             observation=observations,
             reward=rewards,
-            done=dones,
+            terminated=terminated,
+            truncated=truncated,
             action_mask=action_masks,
             info=merged_info,
         )

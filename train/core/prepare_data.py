@@ -36,7 +36,7 @@ class RolloutBuffer:
         self.step = 0
 
         # Preallocate buffers (NumPy arrays on CPU)
-        self.is_new_eps = np.zeros((num_envs, num_steps, num_agents), dtype=np.bool_)
+        self.dones = np.zeros((num_envs, num_steps, num_agents), dtype=np.bool_)
         self.actions = np.zeros((num_envs, num_steps, num_agents, *action_shape), dtype=np.int32)
         self.values = np.zeros((num_envs, num_steps, num_agents), dtype=np.float32)
         self.rewards = np.zeros((num_envs, num_steps, num_agents), dtype=np.float32)
@@ -48,11 +48,11 @@ class RolloutBuffer:
         """Reset buffer for new collection"""
         self.step = 0
 
-    def add(self, is_new_eps, action, value, reward, log_prob, observation, action_mask):
+    def add(self, done, action, value, reward, log_prob, observation, action_mask):
         """Add a timestep of data to buffer
 
         Args:
-            is_new_eps: Per-agent episode boundary flags, shape (num_envs, num_agents)
+            done: Per-agent episode boundary flags, shape (num_envs, num_agents)
             action: Actions taken, shape (num_envs, num_agents, ...)
             value: Value estimates, shape (num_envs, num_agents)
             reward: Rewards received, shape (num_envs, num_agents)
@@ -60,7 +60,7 @@ class RolloutBuffer:
             observation: Observations, shape (num_envs, num_agents, ...)
             action_mask: Action masks, shape (num_envs, num_agents, ...)
         """
-        self.is_new_eps[:, self.step, :] = is_new_eps
+        self.dones[:, self.step, :] = done
         self.actions[:, self.step] = action
         self.values[:, self.step] = value
         self.rewards[:, self.step] = reward
@@ -72,7 +72,7 @@ class RolloutBuffer:
     def to_jax(self) -> train_types.Transition:
         """Convert buffer to JAX arrays for GPU training"""
         return train_types.Transition(
-            is_new_eps=jnp.asarray(self.is_new_eps),
+            done=jnp.asarray(self.dones),
             action=jnp.asarray(self.actions),
             value=jnp.asarray(self.values),
             reward=jnp.asarray(self.rewards),
@@ -95,7 +95,7 @@ def rearrange_transitions(transitions: train_types.Transition) -> train_types.Tr
         return jnp.swapaxes(x, 1, 2)
 
     return train_types.Transition(
-        is_new_eps=swap_axes(transitions.is_new_eps),  # (num_envs, num_steps, num_agents) -> (num_envs, num_agents, num_steps)
+        done=swap_axes(transitions.done),  # (num_envs, num_steps, num_agents) -> (num_envs, num_agents, num_steps)
         action=swap_axes(transitions.action),
         value=swap_axes(transitions.value),
         reward=swap_axes(transitions.reward),
@@ -127,6 +127,10 @@ def create_dataset(
         """Flatten (num_envs, num_agents, num_steps, ...) -> (batch_size, ...)"""
         return x.reshape(batch_size, *x.shape[3:])
 
+    # Compute validity mask: True if transition is valid (state was NOT done)
+    # When done=True, the action was taken in a terminal/truncated state and should be ignore
+    valid_mask = ~transitions.done  # Shape: (num_envs, num_agents, num_steps)
+
     return train_types.Dataset(
         action=flatten_to_batch(transitions.action),
         value=transitions.value.reshape(batch_size),
@@ -135,6 +139,7 @@ def create_dataset(
         action_mask=flatten_to_batch(transitions.action_mask),
         advantage=advantages.reshape(batch_size),
         target_value=target_values.reshape(batch_size),
+        valid_mask=valid_mask.reshape(batch_size),
     )
 
 
@@ -170,7 +175,8 @@ def collect_trajectories(
         - transitions: Collected transitions as JAX arrays for training
                       Shape: (num_envs, num_steps, num_agents, ...)
         - next_value: Bootstrap value for GAE, shape (num_envs, num_agents)
-        - next_done: Done flag for bootstrap, shape (num_envs, num_agents)
+        - next_terminated: Terminated flag for bootstrap, shape (num_envs, num_agents)
+                          Used to zero out bootstrap when episode naturally ended
 
     Note:
         - Environments auto-reset when all agents are done
@@ -213,9 +219,12 @@ def collect_trajectories(
         # Step environment (NumPy, runs on CPU)
         new_timestep = env.step(actions_np)
 
+        # Compute done flag as terminated OR truncated for episode boundary tracking
+        done_np = last_timestep.terminated | last_timestep.truncated
+
         # Store in buffer (all NumPy)
         buffer.add(
-            is_new_eps=last_timestep.done,  # (num_envs, num_agents) - per-agent episode boundaries
+            done=done_np,              # (num_envs, num_agents) - per-agent episode boundaries
             action=actions_np,               # (num_envs, num_agents, ...)
             value=values_np,                 # (num_envs, num_agents)
             reward=new_timestep.reward,      # (num_envs, num_agents)
@@ -234,19 +243,20 @@ def collect_trajectories(
     # Get value estimate for bootstrap
     next_value_flat = agent.get_value(obs_flat)
     next_value = next_value_flat.reshape(num_envs, num_agents)
-    next_done = jnp.asarray(last_timestep.done)  # (num_envs, num_agents) - per-agent done flags
+    # Only use terminated for bootstrap - if truncated, we still want to bootstrap
+    next_terminated = jnp.asarray(last_timestep.terminated)  # (num_envs, num_agents)
 
     # Convert buffer to JAX arrays for GPU training
     transitions = buffer.to_jax()
 
-    return last_timestep, transitions, next_value, next_done
+    return last_timestep, transitions, next_value, next_terminated
 
 @nnx.jit
 def process_transitions(
     transitions: train_types.Transition,
     metrics: nnx.MultiMetric,
     next_value: chex.Array,
-    next_done: chex.Array,
+    next_terminated: chex.Array,
     gamma: float,
     gae_gamma: float,
 ) -> Tuple[nnx.MultiMetric, train_types.Dataset]:
@@ -257,7 +267,8 @@ def process_transitions(
         transitions: Collected transitions with shape (num_envs, num_steps, num_agents, ...)
         metrics: Metric tracker for logging
         next_value: Bootstrap value for GAE, shape (num_envs, num_agents)
-        next_done: Done flag for bootstrap, shape (num_envs, num_agents)
+        next_terminated: Terminated flag for bootstrap, shape (num_envs, num_agents)
+                        Used to zero out bootstrap when episode naturally ended (not truncated)
         gamma: Discount factor
         gae_gamma: GAE lambda parameter
 
@@ -270,7 +281,7 @@ def process_transitions(
 
     # Step 3: Calculate GAE - works on (num_envs, num_agents, num_steps)
     advantages, target_values = calculate_gae(
-        transitions, next_value, next_done, gamma, gae_gamma
+        transitions, next_value, next_terminated, gamma, gae_gamma
     )
 
     # Step 4: Flatten to batch dimension (num_envs * num_agents * num_steps,)
@@ -282,9 +293,9 @@ def process_transitions(
 
     # Log metrics - agent 0 reward only
     ag0_reward = transitions.reward[:, 0, :]  # (num_envs, num_steps)
-    ag0_is_new_eps = transitions.is_new_eps[:, 0, :]  # (num_envs, num_steps)
+    ag0_dones = transitions.done[:, 0, :]  # (num_envs, num_steps)
     metrics.update(
-        inverse_eps_len=ag0_is_new_eps.reshape(num_envs * num_steps),
+        inverse_eps_len=ag0_dones.reshape(num_envs * num_steps),
         reward=ag0_reward.reshape(num_envs * num_steps)
     )
 
@@ -294,7 +305,7 @@ def process_transitions(
 def calculate_gae(
     transitions: train_types.Transition,
     next_value: chex.Array,
-    next_done: chex.Array,
+    next_terminated: chex.Array,
     gamma: float,
     gae_gamma: float,
 ) -> Tuple[chex.Array, chex.Array]:
@@ -307,9 +318,11 @@ def calculate_gae(
         transitions: trajectory data with shape (num_envs, num_agents, num_steps, ...)
                     - reward: (num_envs, num_agents, num_steps)
                     - value: (num_envs, num_agents, num_steps)
-                    - is_new_eps: (num_envs, num_agents, num_steps) - per-agent episode boundaries
+                    - done: (num_envs, num_agents, num_steps) - per-agent episode boundaries
         next_value: Bootstrap value for GAE, shape (num_envs, num_agents)
-        next_done: Done flag for bootstrap, shape (num_envs, num_agents) - per-agent done flags
+        next_terminated: Terminated flag for bootstrap, shape (num_envs, num_agents)
+                        When True, episode naturally ended → don't bootstrap (use 0)
+                        When False, episode was truncated → DO bootstrap (use next_value)
         gamma: Discount factor for future rewards (0 < gamma <= 1)
         gae_gamma: GAE lambda parameter (0 < gae_gamma <= 1)
 
@@ -324,15 +337,15 @@ def calculate_gae(
         Calculate GAE for a single trajectory (one env, one agent).
 
         Args:
-            trajectory_data: Tuple of (rewards, values, is_new_eps, next_value, next_done)
-                           - rewards, values, is_new_eps: shape (num_steps,)
+            trajectory_data: Tuple of (rewards, values, dones, next_value, next_terminated)
+                           - rewards, values, dones: shape (num_steps,)
                            - next_value: scalar
-                           - next_done: scalar (per-agent done flag)
+                           - next_terminated: scalar - True if naturally ended, False if truncated
 
         Returns:
             Tuple of (advantages, target_values), each shape (num_steps,)
         """
-        rewards, values, is_new_eps, next_value, next_done = trajectory_data
+        rewards, values, dones, next_value, next_terminated = trajectory_data
 
         def gae_step(
             carry: Tuple[chex.Array, chex.Array],
@@ -340,7 +353,7 @@ def calculate_gae(
         ) -> Tuple[Tuple[chex.Array, chex.Array], Tuple[chex.Array, chex.Array]]:
             """Single GAE step in reverse scan over time."""
             next_gae, next_value = carry
-            reward, value, is_new_eps = timestep_data
+            reward, value, done = timestep_data
 
             # Compute TD error and GAE
             td_error = reward + gamma * next_value - value
@@ -350,19 +363,20 @@ def calculate_gae(
             target_value = advantage + value
 
             # Reset carry at episode boundaries (prevent leakage to previous episode)
-            gae_out = jnp.where(is_new_eps, 0.0, gae)
-            value_out = jnp.where(is_new_eps, 0.0, value)
+            gae_out = jnp.where(done, 0.0, gae)
+            value_out = jnp.where(done, 0.0, value)
 
             return (gae_out, value_out), (advantage, target_value)
 
-        # Initialize with bootstrap value (use 0 if agent is done, else use next_value)
-        bootstrap_value = jnp.where(next_done, 0.0, next_value)
+        # - If terminated (natural end): use 0 (no future value)
+        # - If truncated (time limit): use next_value (episode continues, we just stopped collecting)
+        bootstrap_value = jnp.where(next_terminated, 0.0, next_value)
         init_carry = (jnp.float32(0.0), bootstrap_value)
 
         _, (advantages, target_values) = jax.lax.scan(
             gae_step,
             init_carry,
-            (rewards, values, is_new_eps),
+            (rewards, values, dones),
             reverse=True
         )
 
@@ -371,7 +385,7 @@ def calculate_gae(
     # Extract data - already in shape (num_envs, num_agents, num_steps)
     rewards = transitions.reward
     values = transitions.value
-    is_new_eps = transitions.is_new_eps  # Already (num_envs, num_agents, num_steps)
+    dones = transitions.done  # Already (num_envs, num_agents, num_steps)
 
     # Infer shapes from arrays
     num_envs, num_agents, num_steps = rewards.shape
@@ -380,14 +394,14 @@ def calculate_gae(
     batch_size = num_envs * num_agents
     rewards_flat = rewards.reshape(batch_size, num_steps)
     values_flat = values.reshape(batch_size, num_steps)
-    is_new_eps_flat = is_new_eps.reshape(batch_size, num_steps)
+    dones_flat = dones.reshape(batch_size, num_steps)
     next_value_flat = next_value.reshape(batch_size)
-    next_done_flat = next_done.reshape(batch_size)
+    next_terminated_flat = next_terminated.reshape(batch_size)
 
     # Vmap over batch dimension
     batched_gae = jax.vmap(calculate_single_trajectory_gae, in_axes=0, out_axes=0)
     advantages_flat, target_values_flat = batched_gae((
-        rewards_flat, values_flat, is_new_eps_flat, next_value_flat, next_done_flat
+        rewards_flat, values_flat, dones_flat, next_value_flat, next_terminated_flat
     ))
 
     # Unflatten: (num_envs * num_agents, num_steps) → (num_envs, num_agents, num_steps)

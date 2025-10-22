@@ -87,7 +87,8 @@ class GymnasiumWrapper(BaseEnv):
 
         return TimeStep(
             reward=np.zeros(self.num_agents, dtype=np.float32),
-            done=np.array([False], dtype=bool),
+            terminated=np.array([False], dtype=bool),
+            truncated=np.array([False], dtype=bool),
             observation=obs_wrapped,
             action_mask=self._default_action_mask,
             info=info,
@@ -104,14 +105,14 @@ class GymnasiumWrapper(BaseEnv):
         single_action = action[0]
 
         obs, reward, terminated, truncated, info = self._env.step(single_action)
-        done = terminated or truncated
 
         # Wrap observation in array with shape (num_agents, ...)
         obs_wrapped = np.expand_dims(obs, axis=0)
 
         return TimeStep(
             reward=np.array([reward], dtype=np.float32),
-            done=np.array([done], dtype=bool),
+            terminated=np.array([terminated], dtype=bool),
+            truncated=np.array([truncated], dtype=bool),
             observation=obs_wrapped,
             action_mask=self._default_action_mask,
             info=info,

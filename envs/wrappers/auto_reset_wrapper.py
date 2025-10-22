@@ -9,10 +9,11 @@ from envs.wrappers.wrapper import Wrapper
 
 class AutoResetWrapper(Wrapper):
     """
-    Auto reset the env, with MODE=SAME
+    Auto reset the env, with MODE=DEFER
     """
 
     def __init__(self, env: BaseEnv):
+        self._need_reset = False
         self._env = env
 
     @cached_property
@@ -31,15 +32,14 @@ class AutoResetWrapper(Wrapper):
         return self._env.reset(seed=seed, options=options)
 
     def step(self, action: Action) -> TimeStep:
+        if self._need_reset:
+            self._need_reset = False
+            return self.reset()
+
         timestep = self._env.step(action)
 
-        # Reset only if all agents are done
-        if timestep.done.all():
-            new_timestep = self._env.reset()
-            timestep = replace(
-                timestep,
-                observation=new_timestep.observation,
-                action_mask=new_timestep.action_mask,
-            )
+        # Reset only if all agents are done (either terminated or truncated)
+        self._need_reset = timestep.terminated | timestep.truncated
+
 
         return timestep

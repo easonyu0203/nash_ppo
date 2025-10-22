@@ -11,7 +11,8 @@ Action = Union[np.ndarray, Dict[str, np.ndarray]]
 @dataclass
 class TimeStep:
     reward: np.ndarray # (num_agents, )
-    done: np.ndarray # (num_agents, )
+    terminated: np.ndarray # (num_agents, ) - natural episode end
+    truncated: np.ndarray # (num_agents, ) - artificial time limit
     observation: Observation # (num_agents, *obs_shape, )
     action_mask: Action # (num_agents, *obs_shape, )
     info: Dict[str, np.ndarray]
@@ -21,7 +22,7 @@ class BaseEnv(abc.ABC):
     """
     Assumption:
         1) agents share same action space and observation space
-        2) agents can terminate independently (done is per-agent)
+        2) agents can terminate/truncate independently (terminated/truncated are per-agent)
     """
 
     def __repr__(self) -> str:

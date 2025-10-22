@@ -264,7 +264,8 @@ class PettingZooWrapper(BaseEnv):
 
         return TimeStep(
             reward=np.zeros(self.num_agents, dtype=np.float32),
-            done=np.zeros(self.num_agents, dtype=bool),
+            terminated=np.zeros(self.num_agents, dtype=bool),
+            truncated=np.zeros(self.num_agents, dtype=bool),
             observation=obs_array,
             action_mask=self._default_action_mask,
             info=infos,
@@ -287,15 +288,21 @@ class PettingZooWrapper(BaseEnv):
         obs_array = self._pad_observations(observations)
         reward_array = self._dict_to_array(rewards)
 
-        # Create per-agent done array
-        done_array = np.array([
-            terminations.get(agent, False) or truncations.get(agent, False)
+        # Create per-agent terminated and truncated arrays
+        terminated_array = np.array([
+            terminations.get(agent, False)
+            for agent in self._agents
+        ], dtype=bool)
+
+        truncated_array = np.array([
+            truncations.get(agent, False)
             for agent in self._agents
         ], dtype=bool)
 
         return TimeStep(
             reward=reward_array.astype(np.float32),
-            done=done_array,
+            terminated=terminated_array,
+            truncated=truncated_array,
             observation=obs_array,
             action_mask=self._default_action_mask,
             info=infos,

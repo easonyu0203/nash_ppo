@@ -78,7 +78,7 @@ def training_step(
     learner_state.key, collect_key, update_key = jax.random.split(learner_state.key, 3)
 
     # Collect trajectories (num_envs, num_steps, num_agents)
-    learner_state.last_timestep, transitions, next_value, next_done = collect_trajectories(
+    learner_state.last_timestep, transitions, next_value, next_terminated = collect_trajectories(
         env=env,
         agent=learner_state.agent,
         last_timestep=learner_state.last_timestep,
@@ -89,7 +89,7 @@ def training_step(
 
     learner_state.rollout_metrics, dataset = process_transitions(
         transitions, learner_state.rollout_metrics,
-        next_value, next_done,
+        next_value, next_terminated,
         gamma = config.algorithm.gamma,
         gae_gamma = config.algorithm.gae_gamma
     )
