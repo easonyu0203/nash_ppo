@@ -2,3 +2,4 @@ env_name: unity
 file_name: null  # null for Unity Editor mode
 time_scale: 4.0  # Speed up training
 num_areas: 4     # Number of training areas per Unity instance
+base_port: 5004
