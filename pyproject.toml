@@ -15,10 +15,7 @@ dependencies = [
     "jax[cuda]>=0.8.0; sys_platform == 'linux'",
     "jax>=0.8.0; sys_platform == 'darwin'",
     "grpcio>=1.76.0",
-    "gymnasium[box2d,classic-control]>=1.2.1",
     "hydra-core>=1.3.2",
-    # "mlagents",
-    # "mlagents-envs",
     "numpy>=2.3.4",
     "omegaconf>=2.3.0",
     "orbax>=0.1.9",
@@ -34,6 +31,10 @@ dependencies = [
 pettingzoo = [
     "pettingzoo[mpe]>=1.15.0",
     "supersuit==3.4.0",
+]
+
+gym = [
+    "gymnasium[box2d,classic-control]>=1.2.1",
 ]
 
 [tool.hatch.build.targets.wheel]
