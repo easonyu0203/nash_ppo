@@ -1,3 +1,4 @@
 env_name: unity
 file_name: /Users/Ethan/Developer/Projects/Usyd/research/external/ml-agents/Project/Builds/3d_ball.app
-time_scale: 4.0  # Speed up training
+time_scale: 32.0  # Speed up training
+num_areas: 4

@@ -54,7 +54,7 @@ def create_env(env_config: DictConfig, auto_reset: bool = True, num_env: int = 1
     if env_name == "unity":
         # Use num_env to set num_areas for Unity's internal parallelization
         # Unity environments auto-reset and parallelize internally
-        return create_unity_env(env_config, num_areas=num_env)
+        return create_unity_env(env_config, num_env=num_env)
 
     def make_env():
         """Helper function to create a single environment instance."""

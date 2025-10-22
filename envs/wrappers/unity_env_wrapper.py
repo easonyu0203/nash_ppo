@@ -38,7 +38,7 @@ class UnityEnvWrapper(BaseEnv):
         self,
         file_name: Optional[str] = None,  # None = Editor, str = Built executable
         num_areas: int = 1,                # Number of parallel training areas
-        base_port: int = 5004,
+        base_port: Optional[int] = None,   # None = auto-select (5004 for editor, 5005 for builds)
         time_scale: float = 20.0,
         seed: int = 0,
         worker_id: int = 0,
@@ -51,10 +51,12 @@ class UnityEnvWrapper(BaseEnv):
         Args:
             file_name: Path to Unity executable (None for Editor mode)
             num_areas: Number of parallel training areas in Unity
-            base_port: Base port for communication (5004 for editor, 5005+ for builds)
+            base_port: Base port for communication
+                      None (default): auto-select 5004 for editor, 5005 for builds
+                      Actual port used = base_port + worker_id
             time_scale: Unity time scale (higher = faster training)
             seed: Random seed
-            worker_id: Worker ID for parallel training
+            worker_id: Worker ID for port offset (port = base_port + worker_id)
             no_graphics: Disable graphics for faster training
             additional_args: Additional command line arguments for Unity
         """
@@ -73,10 +75,14 @@ class UnityEnvWrapper(BaseEnv):
             target_frame_rate=-1,  # Unlimited
         )
 
+        # UnityEnvironment handles base_port=None by auto-selecting:
+        # - 5004 for editor (file_name=None)
+        # - 5005 for builds (file_name specified)
+        # Actual port = base_port + worker_id
         self._unity_env = UnityEnvironment(
             file_name=file_name,
             worker_id=worker_id,
-            base_port=base_port,
+            base_port=base_port,  # Pass None to let UnityEnvironment choose
             seed=seed,
             no_graphics=no_graphics,
             side_channels=[self._engine_channel],
@@ -168,6 +174,10 @@ class UnityEnvWrapper(BaseEnv):
         print(f"  - Total agents: {total_agents} ({self._num_areas} areas × "
               f"{self._num_agents_per_area} agents)")
 
+        # Pre-allocate buffers for observations, rewards, dones, action_masks
+        # to avoid repeated allocations on every step
+        self._allocate_buffers()
+
     def _specs_equal(self, spec1: BehaviorSpec, spec2: BehaviorSpec) -> bool:
         """Check if two behavior specs are equal."""
 
@@ -226,6 +236,36 @@ class UnityEnvWrapper(BaseEnv):
         )
 
     # ----------------- Helper methods -----------------
+    def _allocate_buffers(self):
+        """Pre-allocate reusable buffers to avoid repeated allocations on each step."""
+        obs_shape = self._behavior_spec.observation_specs[0].shape
+        self._obs_buffer = np.zeros(
+            (self._num_areas, self._num_agents_per_area, *obs_shape),
+            dtype=np.float32
+        )
+        self._reward_buffer = np.zeros(
+            (self._num_areas, self._num_agents_per_area),
+            dtype=np.float32
+        )
+        self._done_buffer = np.zeros(
+            (self._num_areas, self._num_agents_per_area),
+            dtype=bool
+        )
+        # Cache the default action mask (all actions valid)
+        branches = self._behavior_spec.action_spec.discrete_branches
+        if self._behavior_spec.action_spec.discrete_size == 1:
+            n = int(branches[0])
+            self._action_mask_buffer = np.ones(
+                (self._num_areas, self._num_agents_per_area, n),
+                dtype=bool
+            )
+        else:
+            nvec = int(len(branches))
+            self._action_mask_buffer = np.ones(
+                (self._num_areas, self._num_agents_per_area, nvec),
+                dtype=bool
+            )
+
     def _build_agent_mapping_from_current_steps(self):
         """
         Build a deterministic mapping from Unity agent_id -> (area_idx, agent_idx)
@@ -259,30 +299,20 @@ class UnityEnvWrapper(BaseEnv):
         self._agent_id_to_idx = agent_map
         self._agent_id_list = agent_list
 
-    def _default_action_mask(self) -> np.ndarray:
-        """
-        Produce the default action mask (all True) with the desired shape:
-         - For single discrete: (num_areas, num_agents_per_area, n_actions)
-         - For multi-discrete: (num_areas, num_agents_per_area, n_branches)
-        """
-        branches = self._behavior_spec.action_spec.discrete_branches
-        if self._behavior_spec.action_spec.discrete_size == 1:
-            n = int(branches[0])
-            mask = np.ones((self._num_areas, self._num_agents_per_area, n), dtype=bool)
-        else:
-            # As requested: shape uses nvec = number of branches (not per-branch cardinalities)
-            nvec = int(len(branches))
-            mask = np.ones((self._num_areas, self._num_agents_per_area, nvec), dtype=bool)
-        return mask
-
     def _empty_batched_buffers(self):
-        """Create empty batched buffers for observations, rewards, dones, action_mask."""
-        obs_shape = self._behavior_spec.observation_specs[0].shape
-        observations = np.zeros((self._num_areas, self._num_agents_per_area, *obs_shape), dtype=np.float32)
-        rewards = np.zeros((self._num_areas, self._num_agents_per_area), dtype=np.float32)
-        dones = np.zeros((self._num_areas, self._num_agents_per_area), dtype=bool)
-        action_masks = self._default_action_mask()
-        return observations, rewards, dones, action_masks
+        """
+        Zero out and return pre-allocated buffers for observations, rewards, dones, action_mask.
+
+        This avoids repeated memory allocations on every step by reusing buffers.
+        """
+        # Zero out the buffers
+        self._obs_buffer.fill(0)
+        self._reward_buffer.fill(0)
+        self._done_buffer.fill(False)
+        # Action mask buffer already contains all True values and doesn't need resetting
+        # since it represents the default "all actions valid" state
+
+        return self._obs_buffer, self._reward_buffer, self._done_buffer, self._action_mask_buffer
 
     def _collect_steps(self):
         """

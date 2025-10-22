@@ -4,10 +4,12 @@ Unity environment subprocess wrapper to avoid gRPC fork issues.
 This wrapper creates the Unity environment in a separate subprocess,
 avoiding the gRPC fork warning and thread issues that occur when
 Unity environments are created in the main process.
+
+Supports both synchronous (single instance) and asynchronous (multi-instance) modes.
 """
 
 import multiprocessing as mp
-from multiprocessing import Process, Pipe
+from multiprocessing import Process, Pipe, Queue
 from multiprocessing.connection import Connection
 from typing import Optional, Tuple, Any
 import traceback
@@ -34,7 +36,9 @@ class UnitySubprocessCommand:
 def _unity_worker_process(
     conn: Connection,
     env_config: DictConfig,
-    num_areas: int
+    num_areas: int,
+    worker_id: int = 0,
+    step_queue: Optional[Queue] = None
 ) -> None:
     """
     Worker process that runs the Unity environment.
@@ -46,19 +50,31 @@ def _unity_worker_process(
         conn: Pipe connection for communication with main process
         env_config: Environment configuration
         num_areas: Number of training areas
+        worker_id: Worker ID for port offset and identification
+        step_queue: Optional queue for async result reporting (multi-instance mode)
     """
     env = None
     try:
         # Import and create Unity environment HERE (in subprocess, after fork)
         from envs.wrappers.unity_env_wrapper import UnityEnvWrapper
 
+        # Calculate unique seed for this worker
+        base_seed = env_config.get("seed", 0)
+
+        # Get base_port from config
+        # If not specified, pass None to let UnityEnvironment auto-select:
+        # - 5004 for editor (file_name=None)
+        # - 5005 for builds (file_name specified)
+        # UnityEnvironment will calculate actual port as: base_port + worker_id
+        base_port = env_config.get("base_port", None)
+
         env = UnityEnvWrapper(
             file_name=env_config.get("file_name", None),
             num_areas=num_areas,
-            base_port=env_config.get("base_port", 5004),
+            base_port=base_port,  # None = auto-select, or explicit port from config
             time_scale=env_config.get("time_scale", 20.0),
-            seed=env_config.get("seed", 0),
-            worker_id=env_config.get("worker_id", 0),
+            seed=base_seed + worker_id,  # Unique seed per worker
+            worker_id=worker_id,          # Port offset: actual_port = base_port + worker_id
             no_graphics=env_config.get("no_graphics", True),
             additional_args=env_config.get("additional_args", None),
         )
@@ -69,6 +85,7 @@ def _unity_worker_process(
             "observation_space": env.observation_space,
             "action_space": env.action_space,
             "num_agents": env.num_agents,
+            "worker_id": worker_id,
         })
 
         # Main loop: process commands from parent process
@@ -79,12 +96,30 @@ def _unity_worker_process(
                 if cmd == UnitySubprocessCommand.RESET:
                     seed = args.get("seed") if args else None
                     timestep = env.reset(seed=seed)
-                    conn.send({"success": True, "timestep": timestep})
+
+                    # Send via queue if available (async mode), otherwise via conn (sync mode)
+                    if step_queue is not None:
+                        step_queue.put({
+                            "success": True,
+                            "worker_id": worker_id,
+                            "timestep": timestep
+                        })
+                    else:
+                        conn.send({"success": True, "timestep": timestep})
 
                 elif cmd == UnitySubprocessCommand.STEP:
                     actions = args["actions"]
                     timestep = env.step(actions)
-                    conn.send({"success": True, "timestep": timestep})
+
+                    # Send via queue if available (async mode), otherwise via conn (sync mode)
+                    if step_queue is not None:
+                        step_queue.put({
+                            "success": True,
+                            "worker_id": worker_id,
+                            "timestep": timestep
+                        })
+                    else:
+                        conn.send({"success": True, "timestep": timestep})
 
                 elif cmd == UnitySubprocessCommand.GET_SPACES:
                     conn.send({
@@ -100,21 +135,31 @@ def _unity_worker_process(
                     break
 
                 else:
-                    conn.send({"success": False, "error": f"Unknown command: {cmd}"})
+                    response = {"success": False, "error": f"Unknown command: {cmd}"}
+                    if step_queue is not None:
+                        step_queue.put(response)
+                    else:
+                        conn.send(response)
 
             except Exception as e:
-                conn.send({
+                response = {
                     "success": False,
                     "error": str(e),
-                    "traceback": traceback.format_exc()
-                })
+                    "traceback": traceback.format_exc(),
+                    "worker_id": worker_id
+                }
+                if step_queue is not None:
+                    step_queue.put(response)
+                else:
+                    conn.send(response)
 
     except Exception as e:
         # Failed to initialize environment
         conn.send({
             "success": False,
             "error": f"Failed to initialize Unity environment: {str(e)}",
-            "traceback": traceback.format_exc()
+            "traceback": traceback.format_exc(),
+            "worker_id": worker_id
         })
     finally:
         # Cleanup
@@ -132,27 +177,42 @@ class UnitySubprocessWrapper(BaseEnv):
 
     This avoids the gRPC fork warning by ensuring Unity/gRPC
     is only initialized in the subprocess, never in the main process.
+
+    Supports both sync mode (single instance) and async mode (multi-instance with queue).
     """
 
-    def __init__(self, env_config: DictConfig, num_areas: int = 1):
+    def __init__(
+        self,
+        env_config: DictConfig,
+        num_areas: int = 1,
+        worker_id: int = 0,
+        step_queue: Optional[Queue] = None,
+        ctx: Optional[mp.context.BaseContext] = None
+    ):
         """
         Initialize the subprocess wrapper.
 
         Args:
             env_config: Unity environment configuration
             num_areas: Number of training areas (parallel agents in Unity)
+            worker_id: Worker ID for port offset and identification
+            step_queue: Optional queue for async communication (multi-instance mode)
+            ctx: Optional multiprocessing context (default: spawn)
         """
         # Use 'spawn' instead of 'fork' to avoid any fork issues
-        ctx = mp.get_context('spawn')
+        if ctx is None:
+            ctx = mp.get_context('spawn')
 
         self._env_config = env_config
         self._num_areas = num_areas
+        self._worker_id = worker_id
+        self._step_queue = step_queue
         self._parent_conn, child_conn = ctx.Pipe()
 
         # Start the subprocess
         self._process = ctx.Process(
             target=_unity_worker_process,
-            args=(child_conn, env_config, num_areas),
+            args=(child_conn, env_config, num_areas, worker_id, step_queue),
             daemon=False  # Don't use daemon - we want clean shutdown
         )
         self._process.start()
@@ -163,7 +223,7 @@ class UnitySubprocessWrapper(BaseEnv):
             self._process.terminate()
             self._process.join(timeout=5)
             raise RuntimeError(
-                f"Failed to initialize Unity environment in subprocess:\n"
+                f"Failed to initialize Unity environment in subprocess (worker_id={worker_id}):\n"
                 f"{response['error']}\n"
                 f"{response.get('traceback', '')}"
             )
@@ -174,37 +234,78 @@ class UnitySubprocessWrapper(BaseEnv):
         self._num_agents = response["num_agents"]
         self._closed = False
 
+    def send_command(self, cmd: str, args: Any = None) -> None:
+        """
+        Send a command to the worker process (non-blocking).
+        Used in async mode with queue - results will be in step_queue.
+
+        Args:
+            cmd: Command to send
+            args: Command arguments
+        """
+        if self._closed:
+            raise RuntimeError("Environment is closed")
+        self._parent_conn.send((cmd, args))
+
     def reset(self, seed: Optional[int] = None) -> TimeStep:
-        """Reset the environment."""
+        """
+        Reset the environment.
+        In sync mode (no queue), waits for response via conn.
+        In async mode (with queue), should use send_command + poll queue instead.
+        """
         if self._closed:
             raise RuntimeError("Environment is closed")
 
         self._parent_conn.send((UnitySubprocessCommand.RESET, {"seed": seed}))
-        response = self._parent_conn.recv()
 
-        if not response["success"]:
+        # Sync mode: wait for response via conn
+        if self._step_queue is None:
+            response = self._parent_conn.recv()
+
+            if not response["success"]:
+                raise RuntimeError(
+                    f"Environment reset failed:\n{response['error']}\n"
+                    f"{response.get('traceback', '')}"
+                )
+
+            return response["timestep"]
+        else:
+            # Async mode: caller should poll queue
+            # This method shouldn't be called directly in async mode
             raise RuntimeError(
-                f"Environment reset failed:\n{response['error']}\n"
-                f"{response.get('traceback', '')}"
+                "reset() should not be called directly in async mode. "
+                "Use send_command() and poll the step_queue instead."
             )
 
-        return response["timestep"]
-
     def step(self, actions: Action) -> TimeStep:
-        """Step the environment."""
+        """
+        Step the environment.
+        In sync mode (no queue), waits for response via conn.
+        In async mode (with queue), should use send_command + poll queue instead.
+        """
         if self._closed:
             raise RuntimeError("Environment is closed")
 
         self._parent_conn.send((UnitySubprocessCommand.STEP, {"actions": actions}))
-        response = self._parent_conn.recv()
 
-        if not response["success"]:
+        # Sync mode: wait for response via conn
+        if self._step_queue is None:
+            response = self._parent_conn.recv()
+
+            if not response["success"]:
+                raise RuntimeError(
+                    f"Environment step failed:\n{response['error']}\n"
+                    f"{response.get('traceback', '')}"
+                )
+
+            return response["timestep"]
+        else:
+            # Async mode: caller should poll queue
+            # This method shouldn't be called directly in async mode
             raise RuntimeError(
-                f"Environment step failed:\n{response['error']}\n"
-                f"{response.get('traceback', '')}"
+                "step() should not be called directly in async mode. "
+                "Use send_command() and poll the step_queue instead."
             )
-
-        return response["timestep"]
 
     @property
     def observation_space(self):
@@ -270,5 +371,6 @@ class UnitySubprocessWrapper(BaseEnv):
         self.close()
 
     def __del__(self):
-        if not self._closed:
+        # Check if _closed exists (initialization may have failed)
+        if hasattr(self, '_closed') and not self._closed:
             self.close()
