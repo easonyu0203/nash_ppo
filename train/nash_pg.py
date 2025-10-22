@@ -138,102 +138,126 @@ def log_metrics(learner_state: LearnerState, logger: BaseLogger, cur_num_update:
 def main(config: DictConfig):
     key = jax.random.key(config.seed)
 
-    # Validate num_envs
-    if config.algorithm.num_envs < 1:
-        raise ValueError(f"num_envs must be >= 1, got {config.algorithm.num_envs}")
+    # Initialize resources that need cleanup
+    env = None
+    logger = None
 
-    # setup env
-    env = create_env(config.env, num_env=config.algorithm.num_envs)
-    init_timestep = env.reset(seed=config.seed)
+    try:
+        # Validate num_envs
+        if config.algorithm.num_envs < 1:
+            raise ValueError(f"num_envs must be >= 1, got {config.algorithm.num_envs}")
 
-    # setup agent
-    key, agent_key = jax.random.split(key)
-    agent = create_agent(config.agent, key=agent_key)
+        # setup env
+        env = create_env(config.env, num_env=config.algorithm.num_envs)
+        init_timestep = env.reset(seed=config.seed)
 
-    # setup optimizer & metrics
-    optimizer = nnx.Optimizer(agent, optax.adamw(config.algorithm.lr, eps=1e-5), wrt=nnx.Param)
-    train_metrics = nnx.MultiMetric(
-        actor_loss = nnx.metrics.Average("actor_loss"),
-        ppo_loss = nnx.metrics.Average("ppo_loss"),
-        entropy = nnx.metrics.Average("entropy"),
-        critic_loss = nnx.metrics.Average("critic_loss"),
-        approx_kl = nnx.metrics.Average("approx_kl"),
-        mag_kl = nnx.metrics.Average("mag_kl"),
-        clip_frac = nnx.metrics.Average("clip_frac"),
-        explained_var = nnx.metrics.Average("explained_var"),
-    )
-    rollout_metrics = nnx.MultiMetric(
-        inverse_eps_len = nnx.metrics.Average("inverse_eps_len"),
-        reward = nnx.metrics.Average("reward"),
-    )
+        # setup agent
+        key, agent_key = jax.random.split(key)
+        agent = create_agent(config.agent, key=agent_key)
 
-    # setup learner state
-    key, learner_key = jax.random.split(key)
-    learner_state = LearnerState(
-        key=learner_key,
-        last_timestep=init_timestep,
-        agent=agent,
-        optimizer=optimizer,
-        train_metrics=train_metrics,
-        rollout_metrics=rollout_metrics,
-        mag_agent=nnx.clone(agent), # init as the same
-    )
+        # setup optimizer & metrics
+        optimizer = nnx.Optimizer(agent, optax.adamw(config.algorithm.lr, eps=1e-5), wrt=nnx.Param)
+        train_metrics = nnx.MultiMetric(
+            actor_loss = nnx.metrics.Average("actor_loss"),
+            ppo_loss = nnx.metrics.Average("ppo_loss"),
+            entropy = nnx.metrics.Average("entropy"),
+            critic_loss = nnx.metrics.Average("critic_loss"),
+            approx_kl = nnx.metrics.Average("approx_kl"),
+            mag_kl = nnx.metrics.Average("mag_kl"),
+            clip_frac = nnx.metrics.Average("clip_frac"),
+            explained_var = nnx.metrics.Average("explained_var"),
+        )
+        rollout_metrics = nnx.MultiMetric(
+            inverse_eps_len = nnx.metrics.Average("inverse_eps_len"),
+            reward = nnx.metrics.Average("reward"),
+        )
 
-    # create buffer for CPU-side rollout storage
-    obs_shape = env.observation_space.shape
+        # setup learner state
+        key, learner_key = jax.random.split(key)
+        learner_state = LearnerState(
+            key=learner_key,
+            last_timestep=init_timestep,
+            agent=agent,
+            optimizer=optimizer,
+            train_metrics=train_metrics,
+            rollout_metrics=rollout_metrics,
+            mag_agent=nnx.clone(agent), # init as the same
+        )
 
-    if hasattr(env.action_space, 'n'):  # Discrete
-        action_shape = ()
-        action_mask_shape = (env.action_space.n,)
-    else:  # MultiDiscrete
-        action_shape = env.action_space.nvec.shape
-        action_mask_shape = env.action_space.nvec.shape
+        # create buffer for CPU-side rollout storage
+        obs_shape = env.observation_space.shape
 
-    buffer = RolloutBuffer(
-        num_envs=config.algorithm.num_envs,
-        num_steps=config.algorithm.num_steps,
-        num_agents=env.num_agents,
-        obs_shape=obs_shape,
-        action_shape=action_shape,
-        action_mask_shape=action_mask_shape
-    )
+        if hasattr(env.action_space, 'n'):  # Discrete
+            action_shape = ()
+            action_mask_shape = (env.action_space.n,)
+        else:  # MultiDiscrete
+            action_shape = env.action_space.nvec.shape
+            action_mask_shape = env.action_space.nvec.shape
 
-    # setup logger
-    logger = create_logger(config)
-    logger.log_config(config)
-    assert config.algorithm.num_inner_update % config.logging.log_interval == 0, "log_interval must be a divisible by num_update"
+        buffer = RolloutBuffer(
+            num_envs=config.algorithm.num_envs,
+            num_steps=config.algorithm.num_steps,
+            num_agents=env.num_agents,
+            obs_shape=obs_shape,
+            action_shape=action_shape,
+            action_mask_shape=action_mask_shape
+        )
 
-    # save first model
-    if config.logging.save_interval > 0:
-        learner_state.agent.save_checkpoint(Path(config.logging.checkpoint_dir).resolve() / config.run_name, step=0)
-    
-    # training loop
-    with tqdm(total=config.algorithm.num_inner_update * config.algorithm.num_outer_update, desc="Training") as pbar:
-        for cur_num_outer_update in range(0, config.algorithm.num_outer_update):
-            for cur_num_inner_update in range(0, config.algorithm.num_inner_update, config.logging.log_interval):
-                cur_num_update = cur_num_outer_update * config.algorithm.num_inner_update + cur_num_inner_update
-                
-                # training step for `log_interval` steps
-                for _ in range(config.logging.log_interval):
-                    learner_state = training_step(learner_state, env=env, config=config, buffer=buffer)
+        # setup logger
+        logger = create_logger(config)
+        logger.log_config(config)
+        assert config.algorithm.num_inner_update % config.logging.log_interval == 0, "log_interval must be a divisible by num_update"
 
-                # update progress bar
-                cur_num_update += config.logging.log_interval
-                pbar.update(config.logging.log_interval)
+        # save first model
+        if config.logging.save_interval > 0:
+            learner_state.agent.save_checkpoint(Path(config.logging.checkpoint_dir).resolve() / config.run_name, step=0)
 
-                # logging
-                log_metrics(learner_state, logger, cur_num_update)
+        # training loop
+        with tqdm(total=config.algorithm.num_inner_update * config.algorithm.num_outer_update, desc="Training") as pbar:
+            for cur_num_outer_update in range(0, config.algorithm.num_outer_update):
+                for cur_num_inner_update in range(0, config.algorithm.num_inner_update, config.logging.log_interval):
+                    cur_num_update = cur_num_outer_update * config.algorithm.num_inner_update + cur_num_inner_update
 
-                # save model
-                if config.logging.save_interval > 0 and cur_num_update % config.logging.save_interval == 0:
-                    learner_state.agent.save_checkpoint(Path(config.logging.checkpoint_dir).resolve() / config.run_name, step=cur_num_update)
+                    # training step for `log_interval` steps
+                    for _ in range(config.logging.log_interval):
+                        learner_state = training_step(learner_state, env=env, config=config, buffer=buffer)
 
-            # update magnet
-            learner_state.mag_agent = nnx.clone(learner_state.agent)
+                    # update progress bar
+                    cur_num_update += config.logging.log_interval
+                    pbar.update(config.logging.log_interval)
 
-    # release resources
-    env.close()
-    logger.close()
+                    # logging
+                    log_metrics(learner_state, logger, cur_num_update)
+
+                    # save model
+                    if config.logging.save_interval > 0 and cur_num_update % config.logging.save_interval == 0:
+                        learner_state.agent.save_checkpoint(Path(config.logging.checkpoint_dir).resolve() / config.run_name, step=cur_num_update)
+
+                # update magnet
+                learner_state.mag_agent = nnx.clone(learner_state.agent)
+
+    except KeyboardInterrupt:
+        logging.info("\nTraining interrupted by user")
+    except Exception as e:
+        logging.error(f"\nTraining failed with error: {e}")
+        raise  # Re-raise to preserve stack trace
+    finally:
+        # CRITICAL: Always cleanup resources
+        logging.info("Cleaning up resources...")
+
+        if logger is not None:
+            try:
+                logger.close()
+            except Exception as e:
+                logging.warning(f"Failed to close logger: {e}")
+
+        if env is not None:
+            try:
+                env.close()
+            except Exception as e:
+                logging.warning(f"Failed to close environment: {e}")
+
+        logging.info("Cleanup complete")
 
 
 @hydra.main(version_base=None, config_path="../conf/default", config_name="nash_pg")

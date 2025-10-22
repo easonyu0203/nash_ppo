@@ -2,7 +2,7 @@
 
 from omegaconf import DictConfig
 from envs.mytypes import BaseEnv
-from envs.wrappers.unity_env_wrapper import UnityEnvWrapper
+from envs.wrappers.unity_subprocess_wrapper import UnitySubprocessWrapper
 
 
 def create_unity_env(env_config: DictConfig, num_areas=1) -> BaseEnv:
@@ -36,25 +36,4 @@ def create_unity_env(env_config: DictConfig, num_areas=1) -> BaseEnv:
         no_graphics: true
     """
 
-    # Extract Unity-specific parameters from env_config
-    file_name = env_config.get("file_name", None)
-    base_port = env_config.get("base_port", 5004)
-    time_scale = env_config.get("time_scale", 20.0)
-    seed = env_config.get("seed", 0)
-    worker_id = env_config.get("worker_id", 0)
-    no_graphics = env_config.get("no_graphics", True)
-    additional_args = env_config.get("additional_args", None)
-
-    # Create Unity environment wrapper
-    env = UnityEnvWrapper(
-        file_name=file_name,
-        num_areas=num_areas,
-        base_port=base_port,
-        time_scale=time_scale,
-        seed=seed,
-        worker_id=worker_id,
-        no_graphics=no_graphics,
-        additional_args=additional_args,
-    )
-
-    return env
+    return UnitySubprocessWrapper(env_config, num_areas=num_areas)
