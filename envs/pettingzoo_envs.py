@@ -15,18 +15,18 @@ def create_mpe_env(env_config: DictConfig, **kwargs):
     MPE environments have vector observations and discrete actions.
     We add agent ID to observations so agents can distinguish themselves.
 
-    Note: Environments with heterogeneous observation spaces (like simple_push_v3 where
+    Note: Environments with heterogeneous observation spaces (like simple_push_v2 where
     adversary and agent have different obs shapes) are automatically handled with padding.
 
     Args:
-        env_config: Config with 'mpe_env_name' field (e.g., 'simple_push_v3', 'simple_v3')
+        env_config: Config with 'mpe_env_name' field (e.g., 'simple_push_v2', 'simple_v2')
                    and optional 'max_cycles' field (default: 100)
         **kwargs: Additional arguments to pass to the MPE environment
 
     Returns:
         Wrapped environment instance
     """
-    from mpe2 import simple_push_v3, simple_v3, simple_tag_v3
+    from pettingzoo.mpe import simple_push_v2, simple_v2, simple_tag_v2
 
     env_name = env_config.get("mpe_env_name")
     if env_name is None:
@@ -37,9 +37,9 @@ def create_mpe_env(env_config: DictConfig, **kwargs):
 
     # Map environment names to their constructors
     mpe_env_map = {
-        "simple_push_v3": simple_push_v3.parallel_env,
-        "simple_v3": simple_v3.parallel_env,
-        "simple_tag_v3": simple_tag_v3.parallel_env,
+        "simple_push_v2": simple_push_v2.parallel_env,
+        "simple_v2": simple_v2.parallel_env,
+        "simple_tag_v2": simple_tag_v2.parallel_env,
     }
 
     if env_name not in mpe_env_map:

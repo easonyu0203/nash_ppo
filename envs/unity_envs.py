@@ -5,7 +5,7 @@ from envs.mytypes import BaseEnv
 from envs.wrappers.unity_env_wrapper import UnityEnvWrapper
 
 
-def create_unity_env(env_config: DictConfig, **kwargs) -> BaseEnv:
+def create_unity_env(env_config: DictConfig) -> BaseEnv:
     """
     Create Unity ML-Agents environment.
 
@@ -26,7 +26,7 @@ def create_unity_env(env_config: DictConfig, **kwargs) -> BaseEnv:
     Note:
         Unlike other environments, Unity uses num_areas for parallelization
         (via TrainingAreaReplicator) instead of multiple process instances.
-        The num_env parameter in create_env() is ignored for Unity environments.
+        The num_env parameter in create_env() sets num_areas automatically.
 
     Example config:
         env_name: unity
@@ -36,7 +36,7 @@ def create_unity_env(env_config: DictConfig, **kwargs) -> BaseEnv:
         no_graphics: true
     """
 
-    # Extract Unity-specific parameters
+    # Extract Unity-specific parameters from env_config
     file_name = env_config.get("file_name", None)
     num_areas = env_config.get("num_areas", 1)
     base_port = env_config.get("base_port", 5004)

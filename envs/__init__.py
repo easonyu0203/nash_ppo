@@ -1,17 +1,22 @@
 from omegaconf import DictConfig
 from envs.wrappers import AutoResetWrapper, GymnasiumWrapper, DummyVecEnv
 from envs.gymnasium_envs import create_gymnasium_env
-from envs.pettingzoo_envs import create_mpe_env, create_atari_env
-
+from envs.unity_envs import create_unity_env
 
 # Registry mapping env_name to creator function
 _ENV_REGISTRY = {
     "gymnasium": create_gymnasium_env,
-    "mpe": create_mpe_env,
-    "atari": create_atari_env,
+    "unity": create_unity_env,
     # Add more environments here as needed
 }
 
+# Optional pettingzoo support
+try:
+    from envs.pettingzoo_envs import create_mpe_env, create_atari_env
+    _ENV_REGISTRY["mpe"] = create_mpe_env
+    _ENV_REGISTRY["atari"] = create_atari_env
+except ImportError:
+    pass  # pettingzoo not installed
 
 def create_env(env_config: DictConfig, auto_reset: bool = True, num_env: int = 1, **kwargs):
     """Create an environment instance based on the config.
@@ -19,12 +24,15 @@ def create_env(env_config: DictConfig, auto_reset: bool = True, num_env: int = 1
     Args:
         env_config: The config object with `env_name` and environment-specific parameters
         auto_reset: If True, wrap environment with AutoResetWrapper (default: True)
+                   Note: Ignored for Unity environments (they auto-reset internally)
         num_env: Number of parallel environments to create (default: 1)
+                Note: For Unity environments, this sets num_areas instead of vectorization
         **kwargs: Additional keyword arguments to pass to the environment creator
                  (e.g., render_mode="human" for gymnasium environments)
 
     Returns:
         A wrapped environment instance (or DummyVecEnv if num_env > 1)
+        For Unity environments, returns a single UnityEnvWrapper instance
 
     Raises:
         ValueError: If the environment name is not recognized or num_env < 1
@@ -41,6 +49,13 @@ def create_env(env_config: DictConfig, auto_reset: bool = True, num_env: int = 1
         )
 
     creator_fn = _ENV_REGISTRY[env_name]
+
+    # Unity environments handle parallelization and auto-reset internally
+    if env_name == "unity":
+        # Use num_env to set num_areas for Unity's internal parallelization
+        env_config.num_areas = num_env
+        # Unity environments auto-reset and parallelize internally
+        return creator_fn(env_config)
 
     def make_env():
         """Helper function to create a single environment instance."""

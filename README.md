@@ -89,11 +89,11 @@ JAX_PLATFORMS=cpu  uv run train/nash_pg.py \
     algorithm.num_inner_update=250 \
     algorithm.num_outer_update=10 \
     algorithm.mag_coef=0.05 \
-    logging.save_interval=100 \
+    logging.save_interval=-1 \
     logging.log_interval=1 \
-    env=mpe/simple_tag \
-    agent=mpe/simple_tag \
-    run_name=mpe/simple_tag/nash_pg/default_run
+    env=gym/cartpole \
+    agent=gym/cartpole \
+    run_name=gym/cartpole/nash_pg/test_run
 
 JAX_PLATFORMS=cpu  uv run train/nash_pg.py \
     algorithm.num_inner_update=250 \

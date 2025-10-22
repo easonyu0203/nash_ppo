@@ -9,7 +9,6 @@ import gymnasium.spaces as gym_spaces
 
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
-from mlagents_envs.side_channel.environment_parameters_channel import EnvironmentParametersChannel
 from mlagents_envs.base_env import ActionTuple, BehaviorSpec
 
 from envs.mytypes import BaseEnv, TimeStep, Action
@@ -84,6 +83,7 @@ class UnityEnvWrapper(BaseEnv):
             num_areas=num_areas,
             additional_args=additional_args,
         )
+        self._unity_env.reset()
 
         # Validate environment meets framework requirements
         self._validate_environment()
@@ -208,7 +208,7 @@ class UnityEnvWrapper(BaseEnv):
             return gym_spaces.Discrete(int(branches[0]))
         else:
             # Multi-discrete action
-            return gym_spaces.MultiDiscrete(branches.astype(np.int32))
+            return gym_spaces.MultiDiscrete(np.array(branches).astype(np.int32))
 
     @cached_property
     def observation_space(self) -> Space:

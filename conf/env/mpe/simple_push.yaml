@@ -1,3 +1,3 @@
 env_name: mpe
-mpe_env_name: simple_push_v3
+mpe_env_name: simple_push_v2
 max_cycles: 100  # Episode length
