@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 from flax import nnx
 from agents import BaseAgent
 from agents.utils import layer_init
@@ -37,21 +37,50 @@ class FeatureExtractor(nnx.Module):
 
 class MLPAgent(BaseAgent):
 
-    def __init__(self, key: chex.PRNGKey, input_dim: int, output_dim: int, mlp_dim: int = 64, num_hidden_layers: int = 3):
+    def __init__(self, key: chex.PRNGKey, input_dim: int, output_dim: Union[int, Tuple[int, ...]], mlp_dim: int = 64, num_hidden_layers: int = 3):
+        """Initialize MLPAgent with support for discrete and multi-discrete actions.
+
+        Args:
+            key: JAX random key
+            input_dim: Input observation dimension
+            output_dim: Output action dimension(s).
+                       - int: for Discrete action space (e.g., 5)
+                       - Tuple[int, ...]: for MultiDiscrete action space (e.g., (3, 2, 4))
+            mlp_dim: Hidden layer dimension
+            num_hidden_layers: Number of hidden layers
+        """
         key1, key2, key3 = jax.random.split(key, 3)
         rngs = nnx.Rngs(key3)
+
+        # Store whether this is multi-discrete
+        self.is_multi_discrete = isinstance(output_dim, (tuple, list))
+        self.output_dim = output_dim
 
         # Separate feature extractors for policy and critic (no parameter sharing)
         self.policy_extractor = FeatureExtractor(key1, input_dim, mlp_dim, num_hidden_layers)
         self.critic_extractor = FeatureExtractor(key2, input_dim, mlp_dim, num_hidden_layers)
 
         # Policy and critic heads
-        self._policy_head = nnx.Linear(in_features=mlp_dim, out_features=output_dim, rngs=rngs)
+        if self.is_multi_discrete:
+            # Create separate head for each action dimension
+            # Each head outputs logits for its respective action space
+            self._policy_heads = nnx.List([
+                nnx.Linear(in_features=mlp_dim, out_features=n_actions, rngs=rngs)
+                for n_actions in output_dim
+            ])
+        else:
+            # Single head for discrete actions
+            self._policy_head = nnx.Linear(in_features=mlp_dim, out_features=output_dim, rngs=rngs)
+
         self._critic_head = nnx.Linear(in_features=mlp_dim, out_features=1, rngs=rngs)
 
         # Initialize modules
         layer_init(self, rngs.param())
-        layer_init(self._policy_head, rngs.param(), std=0.01)
+        if self.is_multi_discrete:
+            for head in self._policy_heads:
+                layer_init(head, rngs.param(), std=0.01)
+        else:
+            layer_init(self._policy_head, rngs.param(), std=0.01)
         
     def get_value(self, observations: env_types.Observation) -> chex.Array:
         """Compute state value."""
@@ -65,14 +94,37 @@ class MLPAgent(BaseAgent):
     def get_action_and_value(
             self, observations: env_types.Observation, key: chex.PRNGKey, action_masks: Optional[chex.Array] = None
         ) -> Tuple[chex.Array, chex.Array, chex.Array]:
-        """Sample action and compute log probability and value."""
-        policy_features: chex.Array = self.policy_extractor(observations)
-        logits: chex.Array = self._policy_head(policy_features)
-        if action_masks is not None:
-            logits = jnp.where(action_masks, logits, -jnp.inf)
+        """Sample action and compute log probability and value.
 
-        dist = distrax.Categorical(logits=logits)
-        actions, log_probs = dist.sample_and_log_prob(seed=key)
+        For multi-discrete actions:
+            - action_masks shape: (batch_size, len(output_dim)) - must be all True (no masking supported)
+            - returns actions of shape: (batch_size, len(output_dim))
+        For discrete actions:
+            - action_masks shape: (batch_size, n_actions)
+            - returns actions of shape: (batch_size,)
+        """
+        policy_features: chex.Array = self.policy_extractor(observations)
+
+        if self.is_multi_discrete:
+            # Multi-discrete: action masking not supported (action_masks ignored if provided)
+            # Get logits for each action dimension
+            logits_list = [head(policy_features) for head in self._policy_heads]
+            # Stack to shape: (batch_size, n_dims, n_actions_per_dim)
+            logits = jnp.stack(logits_list, axis=1)
+
+            # Create Independent distribution over Categorical distributions
+            categoricals = distrax.Categorical(logits=logits)
+            dist = distrax.Independent(categoricals, reinterpreted_batch_ndims=1)
+            actions, log_probs = dist.sample_and_log_prob(seed=key)
+        else:
+            # Discrete action space (original behavior)
+            logits: chex.Array = self._policy_head(policy_features)
+            if action_masks is not None:
+                logits = jnp.where(action_masks, logits, -jnp.inf)
+
+            dist = distrax.Categorical(logits=logits)
+            actions, log_probs = dist.sample_and_log_prob(seed=key)
+
         critic_features: chex.Array = self.critic_extractor(observations)
         values = self._critic_head(critic_features).squeeze(-1)
 
@@ -81,9 +133,27 @@ class MLPAgent(BaseAgent):
     def get_action_distribution(
         self, observations: env_types.Observation, action_masks: Optional[chex.Array] = None
     ) -> distrax.Distribution:
-        """Get action distribution from policy network."""
+        """Get action distribution from policy network.
+
+        Returns:
+            For multi-discrete: Independent distribution wrapping Categorical distributions
+            For discrete: Categorical distribution
+        """
         policy_features: chex.Array = self.policy_extractor(observations)
-        logits: chex.Array = self._policy_head(policy_features)
-        if action_masks is not None:
-            logits = jnp.where(action_masks, logits, -jnp.inf)
-        return distrax.Categorical(logits=logits)
+
+        if self.is_multi_discrete:
+            # Multi-discrete: action masking not supported (action_masks ignored if provided)
+            # Get logits for each action dimension
+            logits_list = [head(policy_features) for head in self._policy_heads]
+            # Stack to shape: (batch_size, n_dims, n_actions_per_dim)
+            logits = jnp.stack(logits_list, axis=1)
+
+            # Create Independent distribution over Categorical distributions
+            categoricals = distrax.Categorical(logits=logits)
+            return distrax.Independent(categoricals, reinterpreted_batch_ndims=1)
+        else:
+            # Discrete action space (original behavior)
+            logits: chex.Array = self._policy_head(policy_features)
+            if action_masks is not None:
+                logits = jnp.where(action_masks, logits, -jnp.inf)
+            return distrax.Categorical(logits=logits)

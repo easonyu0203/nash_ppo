@@ -108,6 +108,7 @@ def training_step(
         clip_eps = config.algorithm.clip_eps,
         num_minibatches = config.algorithm.num_minibatches,
         num_ppo_epoch = config.algorithm.num_ppo_epoch,
+        normalize_logprob = config.algorithm.normalize_logprob,
     )
 
     return learner_state
@@ -230,7 +231,8 @@ def main(config: DictConfig):
             # update magnet
             learner_state.mag_agent = nnx.clone(learner_state.agent)
 
-    # close logger
+    # release resources
+    env.close()
     logger.close()
 
 

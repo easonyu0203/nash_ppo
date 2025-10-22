@@ -16,7 +16,7 @@ class UpdateState:
     metrics: nnx.MultiMetric
     key: chex.PRNGKey
 
-@partial(nnx.jit, static_argnames=('num_minibatches', 'num_ppo_epoch'))
+@partial(nnx.jit, static_argnames=('num_minibatches', 'num_ppo_epoch', 'normalize_logprob'))
 def update_agent(
     agent: BaseAgent,
     mag_agent: BaseAgent,
@@ -29,6 +29,7 @@ def update_agent(
     clip_eps: float,
     num_minibatches: int,
     num_ppo_epoch: int,
+    normalize_logprob: bool = True,
 ) -> Tuple[BaseAgent, nnx.Optimizer, nnx.MultiMetric]:
     """
     Updates agent parameters using PPO with optional magnetic regularization.
@@ -47,6 +48,8 @@ def update_agent(
         clip_eps: PPO clipping parameter
         num_minibatches: Number of minibatches per epoch
         num_ppo_epoch: Number of training epochs
+        normalize_logprob: If True, normalize log_prob and KL divergence by number of action dimensions
+                          (important for multi-discrete actions to prevent instability)
     Returns:
         Tuple of (updated_agent, updated_optimizer, updated_metrics)
     """
@@ -64,26 +67,44 @@ def update_agent(
         """actor loss"""
         log_prob = dists.log_prob(dataset.action)
 
+        # Compute normalization factor based on action dimensions
+        # For discrete: action.ndim = 1, n_action_dims = 1
+        # For multi-discrete: action.ndim = 2, n_action_dims = action.shape[-1]
+        n_action_dims = jnp.where(
+            dataset.action.ndim == 1,
+            1,  # discrete action
+            dataset.action.shape[-1]  # multi-discrete action
+        )
+        # If normalize_logprob=False, use 1.0; otherwise use n_action_dims
+        norm_factor = jnp.where(normalize_logprob, jnp.float32(n_action_dims), jnp.float32(1.0))
+
+        # Normalize log_prob by action dimensions (always divide, factor is 1.0 if disabled)
+        log_prob_normalized = log_prob / norm_factor
+        old_log_prob_normalized = dataset.log_prob / norm_factor
+
         # normalize advantage
         advantage_mean = jnp.mean(dataset.advantage)
         advantage_std = jnp.std(dataset.advantage)
         dataset.advantage = (dataset.advantage - advantage_mean) / (advantage_std + 1e-8)
 
-        # ppo loss
-        log_ratio = log_prob - dataset.log_prob
+        # ppo loss (use normalized log_prob)
+        log_ratio = log_prob_normalized - old_log_prob_normalized
         ratio = jnp.exp(log_ratio)
         ppo_loss1 = ratio * dataset.advantage
         ppo_loss2 = jnp.clip(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * dataset.advantage
         ppo_loss = -jnp.mean(jnp.minimum(ppo_loss1, ppo_loss2))
 
-        # entropy loss
+        # entropy loss (already averaged over batch, no additional normalization needed)
         entropy_loss = -jnp.mean(dists.entropy())
 
         # magnet loss
         mag_loss, mag_kl = 0, 0
         if mag_agent is not None:
             mag_dists = mag_agent.get_action_distribution(dataset.observation, dataset.action_mask)
-            mag_kl = jnp.mean(dists.kl_divergence(mag_dists))
+            kl_div = dists.kl_divergence(mag_dists)
+            # Normalize KL divergence by action dimensions
+            kl_div_normalized = kl_div / norm_factor
+            mag_kl = jnp.mean(kl_div_normalized)
             mag_loss = mag_kl
 
         # total actor loss
@@ -126,7 +147,7 @@ def update_agent(
         grad = nnx.grad(calculate_n_log_loss)(carry.agent, batch, carry.metrics)
 
         # update agent, optimizer state (inplace update)
-        carry.optimizer.update(grad)
+        carry.optimizer.update(carry.agent, grad)
 
         return carry, 0
 

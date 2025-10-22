@@ -1,0 +1,5 @@
+agent_name: "mlp"
+input_dim: 8  # 3D Ball observation space
+output_dim: [3, 3]  # MultiDiscrete([3, 3]) actions
+mlp_dim: 64
+num_hidden_layers: 2

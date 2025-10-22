@@ -5,20 +5,20 @@ from envs.mytypes import BaseEnv
 from envs.wrappers.unity_env_wrapper import UnityEnvWrapper
 
 
-def create_unity_env(env_config: DictConfig) -> BaseEnv:
+def create_unity_env(env_config: DictConfig, num_areas=1) -> BaseEnv:
     """
     Create Unity ML-Agents environment.
 
     Args:
         env_config: Configuration with Unity-specific parameters:
             - file_name (str|None): Path to Unity executable (None for Editor mode)
-            - num_areas (int): Number of parallel training areas (default: 1)
             - base_port (int): Base port for communication (default: 5004)
             - time_scale (float): Unity time scale for faster training (default: 20.0)
             - seed (int): Random seed (default: 0)
             - worker_id (int): Worker ID for parallel instances (default: 0)
             - no_graphics (bool): Disable graphics (default: True)
             - additional_args (list): Additional Unity command line args (default: None)
+        - num_areas (int): Number of parallel training areas (default: 1)
 
     Returns:
         UnityEnvWrapper instance
@@ -38,7 +38,6 @@ def create_unity_env(env_config: DictConfig) -> BaseEnv:
 
     # Extract Unity-specific parameters from env_config
     file_name = env_config.get("file_name", None)
-    num_areas = env_config.get("num_areas", 1)
     base_port = env_config.get("base_port", 5004)
     time_scale = env_config.get("time_scale", 20.0)
     seed = env_config.get("seed", 0)

@@ -85,22 +85,27 @@ uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/lbf_tiny_3ag/
 ```
 
 
-JAX_PLATFORMS=cpu  uv run train/nash_pg.py \
-    algorithm.num_inner_update=250 \
-    algorithm.num_outer_update=10 \
-    algorithm.mag_coef=0.05 \
-    logging.save_interval=-1 \
-    logging.log_interval=1 \
-    env=gym/cartpole \
-    agent=gym/cartpole \
-    run_name=gym/cartpole/nash_pg/test_run
-
-JAX_PLATFORMS=cpu  uv run train/nash_pg.py \
-    algorithm.num_inner_update=250 \
+JAX_PLATFORMS=cpu uv run train/nash_pg.py \
+    algorithm.num_inner_update=100 \
     algorithm.num_outer_update=10 \
     algorithm.mag_coef=0.0 \
-    logging.save_interval=100 \
+    logging.save_interval=-1 \
     logging.log_interval=1 \
-    env=mpe/simple_tag \
-    agent=mpe/simple_tag \
-    run_name=mpe/simple_tag/ippo/default_run
+    env=unity/editor \
+    agent=unity/3d_ball \
+    run_name=unity/3d_ball/ippo/norm_log_prob
+
+JAX_PLATFORMS=cpu uv run train/nash_pg.py \
+    algorithm.num_inner_update=100 \
+    algorithm.num_outer_update=10 \
+    algorithm.num_envs=16 \
+    algorithm.num_steps=64 \
+    algorithm.gamma=0.99 \
+    algorithm.normalize_logprob=False \
+    algorithm.mag_coef=0.0 \
+    logging.save_interval=-1 \
+    logging.log_interval=1 \
+    env.time_scale=8.0 \
+    env=unity/editor \
+    agent=unity/3d_ball \
+    run_name=unity/3d_ball/ippo/default
