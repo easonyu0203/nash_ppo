@@ -102,7 +102,7 @@ def update_agent(
         ppo_loss = jnp.sum(ppo_loss_per_sample * valid_mask) / num_valid
 
         # entropy loss (masked mean)
-        entropy_per_sample = dists.entropy()
+        entropy_per_sample = dists.entropy() / norm_factor
         entropy_loss = -jnp.sum(entropy_per_sample * valid_mask) / num_valid
 
         # magnet loss (masked mean)

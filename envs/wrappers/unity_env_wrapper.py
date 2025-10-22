@@ -339,6 +339,7 @@ class UnityEnvWrapper(BaseEnv):
                 # decision_steps.obs is a list (one element per observation); we assume single obs
                 obs_arr = decision_steps.obs[0]
                 rew_arr = decision_steps.reward
+                group_rew_arr = decision_steps.group_reward
                 # iterate in Unity-provided order
                 for i, aid in enumerate(decision_steps.agent_id):
                     aid_int = int(aid)
@@ -347,7 +348,8 @@ class UnityEnvWrapper(BaseEnv):
                         raise KeyError(f"Unknown agent_id {aid_int} encountered in DecisionSteps")
                     area_idx, local_idx = self._agent_id_to_idx[aid_int]
                     observations[area_idx, local_idx] = obs_arr[i]
-                    rewards[area_idx, local_idx] = float(rew_arr[i])
+                    # Total reward = individual reward + group reward
+                    rewards[area_idx, local_idx] = float(rew_arr[i]) + float(group_rew_arr[i])
                     terminated[area_idx, local_idx] = False
                     truncated[area_idx, local_idx] = False
 
@@ -355,6 +357,7 @@ class UnityEnvWrapper(BaseEnv):
             if len(terminal_steps) > 0:
                 obs_arr = terminal_steps.obs[0]
                 rew_arr = terminal_steps.reward
+                group_rew_arr = terminal_steps.group_reward
                 interrupted_arr = terminal_steps.interrupted  # True = truncated, False = terminated
                 for i, aid in enumerate(terminal_steps.agent_id):
                     aid_int = int(aid)
@@ -362,7 +365,8 @@ class UnityEnvWrapper(BaseEnv):
                         raise KeyError(f"Unknown agent_id {aid_int} encountered in TerminalSteps")
                     area_idx, local_idx = self._agent_id_to_idx[aid_int]
                     observations[area_idx, local_idx] = obs_arr[i]
-                    rewards[area_idx, local_idx] = float(rew_arr[i])
+                    # Total reward = individual reward + group reward
+                    rewards[area_idx, local_idx] = float(rew_arr[i]) + float(group_rew_arr[i])
                     # Use interrupted flag to distinguish termination vs truncation
                     if interrupted_arr[i]:
                         # Episode was interrupted (hit max steps) → truncated

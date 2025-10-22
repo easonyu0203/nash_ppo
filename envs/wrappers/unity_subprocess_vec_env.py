@@ -214,7 +214,8 @@ class UnitySubprocessVecEnv(BaseEnv):
         # Stack along first dimension: (num_instances, num_areas, num_agents, ...)
         observations = np.stack([ts.observation for ts in timesteps], axis=0)
         rewards = np.stack([ts.reward for ts in timesteps], axis=0)
-        dones = np.stack([ts.done for ts in timesteps], axis=0)
+        terminated = np.stack([ts.terminated for ts in timesteps], axis=0)
+        truncated = np.stack([ts.truncated for ts in timesteps], axis=0)
         action_masks = np.stack([ts.action_mask for ts in timesteps], axis=0)
 
         # Reshape to (num_instances * num_areas, num_agents, ...)
@@ -222,7 +223,8 @@ class UnitySubprocessVecEnv(BaseEnv):
         batch_size = self.num_instances * self.num_areas
         observations = observations.reshape(batch_size, self._num_agents, *observations.shape[3:])
         rewards = rewards.reshape(batch_size, self._num_agents)
-        dones = dones.reshape(batch_size, self._num_agents)
+        terminated = terminated.reshape(batch_size, self._num_agents)
+        truncated = truncated.reshape(batch_size, self._num_agents)
         action_masks = action_masks.reshape(batch_size, self._num_agents, *action_masks.shape[3:])
 
         # Merge info dicts with worker_id prefix
@@ -234,7 +236,8 @@ class UnitySubprocessVecEnv(BaseEnv):
         return TimeStep(
             observation=observations,
             reward=rewards,
-            done=dones,
+            terminated=terminated,
+            truncated=truncated,
             action_mask=action_masks,
             info=merged_info,
         )

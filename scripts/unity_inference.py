@@ -4,8 +4,8 @@ Unity Inference Server - Responds to decision requests from Unity with trained a
 Usage:
     # Run with editor (default port 5004)
     JAX_PLATFORMS=cpu uv run scripts/unity_inference.py \
-        --checkpoint-dir ./checkpoints/unity/3d_ball/ippo/run0 \
-        --step 100 \
+        --checkpoint-dir ./checkpoints/unity/soccer/ippo/run0 \
+        --step 5000 \
         --time-scale 1.0 \
         --seed 0
 

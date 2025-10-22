@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Optional, Tuple, Sequence
 from flax import nnx
 from agents import BaseAgent
@@ -150,15 +151,18 @@ class ImageAgent(BaseAgent):
         layer_init(self, rngs.param())
         layer_init(self._policy_head, rngs.param(), std=0.01)
 
+    @partial(jax.jit, static_argnames=('self', ))
     def get_value(self, observations: env_types.Observation) -> chex.Array:
         """Compute state value."""
         features: chex.Array = self.critic_extractor(observations)
         return self._critic_head(features).squeeze(-1)
 
+    @partial(jax.jit, static_argnames=('self', ))
     def get_action(self, observations: env_types.Observation, key: chex.PRNGKey, action_masks: Optional[chex.Array] = None) -> chex.Array:
         """Sample action from policy."""
         return self.get_action_distribution(observations, action_masks).sample(seed=key)
 
+    @partial(jax.jit, static_argnames=('self', ))
     def get_action_and_value(
             self, observations: env_types.Observation, key: chex.PRNGKey, action_masks: Optional[chex.Array] = None
         ) -> Tuple[chex.Array, chex.Array, chex.Array]:
@@ -175,6 +179,7 @@ class ImageAgent(BaseAgent):
 
         return actions, log_probs, values
 
+    @partial(jax.jit, static_argnames=('self', ))
     def get_action_distribution(
         self, observations: env_types.Observation, action_masks: Optional[chex.Array] = None
     ) -> distrax.Distribution:
