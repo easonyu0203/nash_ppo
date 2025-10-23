@@ -88,16 +88,17 @@ uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/lbf_tiny_3ag/
 JAX_PLATFORMS=cpu uv run train/nash_pg.py \
     algorithm.num_inner_update=1000 \
     algorithm.num_outer_update=10 \
-    algorithm.num_envs=32 \
+    algorithm.num_envs=2 \
     algorithm.num_steps=128 \
     algorithm.gamma=0.998 \
     algorithm.mag_coef=0.0 \
-    logging.save_interval=500 \
+    logging.save_interval=-1 \
     logging.log_interval=1 \
     env.time_scale=32.0 \
-    env.num_areas=16 \
+    env.num_areas=2 \
     env.base_port=5005 \
     env=unity/soccer \
+    env.file_name="./build/soccer/soccer.x86_64" \
     agent=unity/soccer_mlp_small \
     run_name=unity/soccer/ippo/run1
 

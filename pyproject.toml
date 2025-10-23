@@ -25,6 +25,7 @@ dependencies = [
     "tqdm>=4.67.1",
     "mlagents-envs",
     "mlagents",
+    "gymnasium>=1.2.1",
 ]
 
 [project.optional-dependencies]
