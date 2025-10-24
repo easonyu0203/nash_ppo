@@ -222,27 +222,60 @@ class UnityEnvWrapper(BaseEnv):
 
     @cached_property
     def observation_space(self) -> Space:
-        """Convert ML-Agents ObservationSpec to Gymnasium Box."""
+        """Convert ML-Agents ObservationSpec to Gymnasium Box or Dict.
+
+        Returns:
+            - Box space if single observation
+            - Dict space if multiple observations (keys: "obs_0", "obs_1", ...)
+        """
         obs_specs = self._behavior_spec.observation_specs
 
-        if len(obs_specs) > 1:
-            raise ValueError("currently don't support multi-observation")
-        
-        return gym_spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=obs_specs[0].shape,
-            dtype=np.float32
-        )
+        if len(obs_specs) == 1:
+            # Single observation - return Box space
+            return gym_spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=obs_specs[0].shape,
+                dtype=np.float32
+            )
+        else:
+            # Multiple observations - return Dict space
+            return gym_spaces.Dict({
+                f"obs_{i}": gym_spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=spec.shape,
+                    dtype=np.float32
+                )
+                for i, spec in enumerate(obs_specs)
+            })
 
     # ----------------- Helper methods -----------------
     def _allocate_buffers(self):
-        """Pre-allocate reusable buffers to avoid repeated allocations on each step."""
-        obs_shape = self._behavior_spec.observation_specs[0].shape
-        self._obs_buffer = np.zeros(
-            (self._num_areas, self._num_agents_per_area, *obs_shape),
-            dtype=np.float32
-        )
+        """Pre-allocate reusable buffers to avoid repeated allocations on each step.
+
+        Supports both single observation (creates array) and multiple observations (creates dict of arrays).
+        """
+        obs_specs = self._behavior_spec.observation_specs
+
+        # Allocate observation buffers
+        if len(obs_specs) == 1:
+            # Single observation - allocate single buffer
+            obs_shape = obs_specs[0].shape
+            self._obs_buffer = np.zeros(
+                (self._num_areas, self._num_agents_per_area, *obs_shape),
+                dtype=np.float32
+            )
+        else:
+            # Multiple observations - allocate dict of buffers
+            self._obs_buffer = {
+                f"obs_{i}": np.zeros(
+                    (self._num_areas, self._num_agents_per_area, *spec.shape),
+                    dtype=np.float32
+                )
+                for i, spec in enumerate(obs_specs)
+            }
+
         self._reward_buffer = np.zeros(
             (self._num_areas, self._num_agents_per_area),
             dtype=np.float32
@@ -308,9 +341,17 @@ class UnityEnvWrapper(BaseEnv):
         Zero out and return pre-allocated buffers for observations, rewards, terminated, truncated, action_mask.
 
         This avoids repeated memory allocations on every step by reusing buffers.
+        Handles both single observation (array) and multiple observations (dict of arrays).
         """
-        # Zero out the buffers
-        self._obs_buffer.fill(0)
+        # Zero out the observation buffers
+        if isinstance(self._obs_buffer, dict):
+            # Multiple observations - zero out each buffer in dict
+            for buf in self._obs_buffer.values():
+                buf.fill(0)
+        else:
+            # Single observation - zero out single buffer
+            self._obs_buffer.fill(0)
+
         self._reward_buffer.fill(0)
         self._terminated_buffer.fill(False)
         self._truncated_buffer.fill(False)
@@ -327,8 +368,13 @@ class UnityEnvWrapper(BaseEnv):
         Uses terminal_steps.interrupted to distinguish termination vs truncation:
         - interrupted=True → truncated (hit max steps)
         - interrupted=False → terminated (natural episode end)
+
+        Handles both single observation (array) and multiple observations (dict of arrays).
         """
         observations, rewards, terminated, truncated, action_masks = self._empty_batched_buffers()
+
+        # Determine if we have single or multiple observations
+        is_dict_obs = isinstance(observations, dict)
 
         # iterate behaviors and combine decision + terminal steps
         for behavior_name in self._behavior_names:
@@ -336,8 +382,7 @@ class UnityEnvWrapper(BaseEnv):
 
             # DecisionSteps (not terminal)
             if len(decision_steps) > 0:
-                # decision_steps.obs is a list (one element per observation); we assume single obs
-                obs_arr = decision_steps.obs[0]
+                # decision_steps.obs is a list (one element per observation type)
                 rew_arr = decision_steps.reward
                 group_rew_arr = decision_steps.group_reward
                 # iterate in Unity-provided order
@@ -347,7 +392,16 @@ class UnityEnvWrapper(BaseEnv):
                         # Should not happen if mapping built correctly
                         raise KeyError(f"Unknown agent_id {aid_int} encountered in DecisionSteps")
                     area_idx, local_idx = self._agent_id_to_idx[aid_int]
-                    observations[area_idx, local_idx] = obs_arr[i]
+
+                    # Assign observations
+                    if is_dict_obs:
+                        # Multiple observations - assign each to corresponding key
+                        for obs_idx, obs_arr in enumerate(decision_steps.obs):
+                            observations[f"obs_{obs_idx}"][area_idx, local_idx] = obs_arr[i]
+                    else:
+                        # Single observation - assign directly
+                        observations[area_idx, local_idx] = decision_steps.obs[0][i]
+
                     # Total reward = individual reward + group reward
                     rewards[area_idx, local_idx] = float(rew_arr[i]) + float(group_rew_arr[i])
                     terminated[area_idx, local_idx] = False
@@ -355,7 +409,6 @@ class UnityEnvWrapper(BaseEnv):
 
             # TerminalSteps (agents that just terminated/truncated)
             if len(terminal_steps) > 0:
-                obs_arr = terminal_steps.obs[0]
                 rew_arr = terminal_steps.reward
                 group_rew_arr = terminal_steps.group_reward
                 interrupted_arr = terminal_steps.interrupted  # True = truncated, False = terminated
@@ -364,7 +417,16 @@ class UnityEnvWrapper(BaseEnv):
                     if aid_int not in self._agent_id_to_idx:
                         raise KeyError(f"Unknown agent_id {aid_int} encountered in TerminalSteps")
                     area_idx, local_idx = self._agent_id_to_idx[aid_int]
-                    observations[area_idx, local_idx] = obs_arr[i]
+
+                    # Assign observations
+                    if is_dict_obs:
+                        # Multiple observations - assign each to corresponding key
+                        for obs_idx, obs_arr in enumerate(terminal_steps.obs):
+                            observations[f"obs_{obs_idx}"][area_idx, local_idx] = obs_arr[i]
+                    else:
+                        # Single observation - assign directly
+                        observations[area_idx, local_idx] = terminal_steps.obs[0][i]
+
                     # Total reward = individual reward + group reward
                     rewards[area_idx, local_idx] = float(rew_arr[i]) + float(group_rew_arr[i])
                     # Use interrupted flag to distinguish termination vs truncation

@@ -15,14 +15,15 @@ class RolloutBuffer:
     """
     CPU-side buffer for storing rollout data before transferring to GPU.
     Stores data as NumPy arrays for efficient CPU environment interaction.
+    Supports both array and Dict observation spaces.
     """
-    def __init__(self, num_envs: int, num_steps: int, num_agents: int, obs_shape: tuple, action_shape: tuple, action_mask_shape: tuple):
+    def __init__(self, num_envs: int, num_steps: int, num_agents: int, obs_shape, action_shape: tuple, action_mask_shape: tuple):
         """
         Args:
             num_envs: Number of parallel environments
             num_steps: Number of steps to collect
             num_agents: Number of agents per environment
-            obs_shape: Shape of observations (per agent)
+            obs_shape: Shape of observations (per agent) - can be tuple for array obs or dict for Dict obs
             action_shape: Shape of actions (per agent)
                         - Discrete: () - scalar
                         - MultiDiscrete: (n,) - vector
@@ -41,7 +42,16 @@ class RolloutBuffer:
         self.values = np.zeros((num_envs, num_steps, num_agents), dtype=np.float32)
         self.rewards = np.zeros((num_envs, num_steps, num_agents), dtype=np.float32)
         self.log_probs = np.zeros((num_envs, num_steps, num_agents), dtype=np.float32)
-        self.observations = np.zeros((num_envs, num_steps, num_agents, *obs_shape), dtype=np.float32)
+
+        # Support Dict observations
+        if isinstance(obs_shape, dict):
+            self.observations = {
+                key: np.zeros((num_envs, num_steps, num_agents, *shape), dtype=np.float32)
+                for key, shape in obs_shape.items()
+            }
+        else:
+            self.observations = np.zeros((num_envs, num_steps, num_agents, *obs_shape), dtype=np.float32)
+
         self.action_masks = np.zeros((num_envs, num_steps, num_agents, *action_mask_shape), dtype=np.int8)
 
     def reset(self):
@@ -57,7 +67,7 @@ class RolloutBuffer:
             value: Value estimates, shape (num_envs, num_agents)
             reward: Rewards received, shape (num_envs, num_agents)
             log_prob: Log probabilities, shape (num_envs, num_agents)
-            observation: Observations, shape (num_envs, num_agents, ...)
+            observation: Observations, shape (num_envs, num_agents, ...) or dict of such
             action_mask: Action masks, shape (num_envs, num_agents, ...)
         """
         self.dones[:, self.step, :] = done
@@ -65,7 +75,14 @@ class RolloutBuffer:
         self.values[:, self.step] = value
         self.rewards[:, self.step] = reward
         self.log_probs[:, self.step] = log_prob
-        self.observations[:, self.step] = observation
+
+        # Handle Dict observations
+        if isinstance(self.observations, dict):
+            for key in self.observations.keys():
+                self.observations[key][:, self.step] = observation[key]
+        else:
+            self.observations[:, self.step] = observation
+
         self.action_masks[:, self.step] = action_mask
         self.step += 1
 
@@ -77,7 +94,7 @@ class RolloutBuffer:
             value=jnp.asarray(self.values),
             reward=jnp.asarray(self.rewards),
             log_prob=jnp.asarray(self.log_probs),
-            observation=jnp.asarray(self.observations),
+            observation=jax.tree.map(jnp.asarray, self.observations),
             action_mask=jnp.asarray(self.action_masks),
         )
 
@@ -183,8 +200,14 @@ def collect_trajectories(
         - NumPy ↔ JAX conversions happen at agent inference boundary
     """
     # Get shapes from last_timestep
-    num_envs = last_timestep.observation.shape[0]
-    num_agents = last_timestep.observation.shape[1]
+    # Handle Dict observations - get shape from first key
+    if isinstance(last_timestep.observation, dict):
+        first_key = next(iter(last_timestep.observation.keys()))
+        num_envs = last_timestep.observation[first_key].shape[0]
+        num_agents = last_timestep.observation[first_key].shape[1]
+    else:
+        num_envs = last_timestep.observation.shape[0]
+        num_agents = last_timestep.observation.shape[1]
 
     buffer.reset()
 
@@ -193,12 +216,14 @@ def collect_trajectories(
         key, act_key = jax.random.split(key)
 
         # === Convert NumPy → JAX for agent inference ===
-        obs_jax = jnp.asarray(last_timestep.observation)
+        obs_jax = jax.tree.map(jnp.asarray, last_timestep.observation)
         action_mask_jax = jnp.asarray(last_timestep.action_mask)
 
         # Flatten env and agent dims for agent: (num_envs, num_agents, ...) → (batch, ...)
         batch_size = num_envs * num_agents
-        obs_flat = obs_jax.reshape(batch_size, *obs_jax.shape[2:])
+        def flatten_batch(x):
+            return x.reshape(batch_size, *x.shape[2:])
+        obs_flat = jax.tree.map(flatten_batch, obs_jax)
         action_mask_flat = action_mask_jax.reshape(batch_size, *action_mask_jax.shape[2:])
 
         # Agent forward pass (JAX, runs on GPU)
@@ -236,9 +261,11 @@ def collect_trajectories(
         last_timestep = new_timestep
 
     # Compute bootstrap value for GAE (value of the next state after rollout)
-    obs_jax = jnp.asarray(last_timestep.observation)
+    obs_jax = jax.tree.map(jnp.asarray, last_timestep.observation)
     batch_size = num_envs * num_agents
-    obs_flat = obs_jax.reshape(batch_size, *obs_jax.shape[2:])
+    def flatten_batch_bootstrap(x):
+        return x.reshape(batch_size, *x.shape[2:])
+    obs_flat = jax.tree.map(flatten_batch_bootstrap, obs_jax)
 
     # Get value estimate for bootstrap
     next_value_flat = agent.get_value(obs_flat)

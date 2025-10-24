@@ -44,6 +44,7 @@ import chex
 import optax
 import hydra
 from omegaconf import DictConfig
+from gymnasium.spaces import Dict as DictSpace
 
 from envs import create_env
 import envs.mytypes as env_types
@@ -185,7 +186,11 @@ def main(config: DictConfig):
         )
 
         # create buffer for CPU-side rollout storage
-        obs_shape = env.observation_space.shape
+        # Handle Dict observation spaces
+        if isinstance(env.observation_space, DictSpace):
+            obs_shape = {key: space.shape for key, space in env.observation_space.spaces.items()}
+        else:
+            obs_shape = env.observation_space.shape
 
         if hasattr(env.action_space, 'n'):  # Discrete
             action_shape = ()

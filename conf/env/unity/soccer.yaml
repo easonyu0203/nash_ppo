@@ -1,5 +1,5 @@
 env_name: unity
-file_name: /Users/Ethan/Developer/Projects/Usyd/research/external/ml-agents/Project/Builds/soccer.app
+file_name: /Users/Ethan/Developer/Projects/Usyd/research/external/ml-agents/Project/Builds/mac/soccer.app
 time_scale: 32.0  # Speed up training
 num_areas: 8
 base_port: 5005

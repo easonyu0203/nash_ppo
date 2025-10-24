@@ -210,9 +210,22 @@ class UnitySubprocessVecEnv(BaseEnv):
 
         Returns:
             TimeStep with shape (num_instances * num_areas, num_agents, ...)
+
+        Handles both single observation (array) and multiple observations (dict of arrays).
         """
         # Stack along first dimension: (num_instances, num_areas, num_agents, ...)
-        observations = np.stack([ts.observation for ts in timesteps], axis=0)
+        # Check if observations are dicts
+        first_obs = timesteps[0].observation
+        if isinstance(first_obs, dict):
+            # Multiple observations - stack each key separately
+            observations = {
+                key: np.stack([ts.observation[key] for ts in timesteps], axis=0)
+                for key in first_obs.keys()
+            }
+        else:
+            # Single observation - stack directly
+            observations = np.stack([ts.observation for ts in timesteps], axis=0)
+
         rewards = np.stack([ts.reward for ts in timesteps], axis=0)
         terminated = np.stack([ts.terminated for ts in timesteps], axis=0)
         truncated = np.stack([ts.truncated for ts in timesteps], axis=0)
@@ -221,7 +234,17 @@ class UnitySubprocessVecEnv(BaseEnv):
         # Reshape to (num_instances * num_areas, num_agents, ...)
         # Merge first two dimensions
         batch_size = self.num_instances * self.num_areas
-        observations = observations.reshape(batch_size, self._num_agents, *observations.shape[3:])
+
+        if isinstance(observations, dict):
+            # Multiple observations - reshape each key separately
+            observations = {
+                key: val.reshape(batch_size, self._num_agents, *val.shape[3:])
+                for key, val in observations.items()
+            }
+        else:
+            # Single observation - reshape directly
+            observations = observations.reshape(batch_size, self._num_agents, *observations.shape[3:])
+
         rewards = rewards.reshape(batch_size, self._num_agents)
         terminated = terminated.reshape(batch_size, self._num_agents)
         truncated = truncated.reshape(batch_size, self._num_agents)
