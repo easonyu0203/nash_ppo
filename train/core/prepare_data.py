@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Optional
 import numpy as np
 
 import jax
@@ -9,6 +9,7 @@ import chex
 import train.mytypes as train_types
 import envs.mytypes as env_types
 from agents import BaseAgent
+from train.core.value_norm import ValueNorm
 
 
 class RolloutBuffer:
@@ -286,6 +287,7 @@ def process_transitions(
     next_terminated: chex.Array,
     gamma: float,
     gae_gamma: float,
+    value_normalizer: Optional[ValueNorm] = None,
 ) -> Tuple[nnx.MultiMetric, train_types.Dataset]:
     """
     Process transitions and calculate advantages using GAE.
@@ -298,6 +300,7 @@ def process_transitions(
                         Used to zero out bootstrap when episode naturally ended (not truncated)
         gamma: Discount factor
         gae_gamma: GAE lambda parameter
+        value_normalizer: Optional value normalizer for denormalizing value predictions
 
     Returns:
         Tuple of (updated metrics, training dataset)
@@ -308,7 +311,7 @@ def process_transitions(
 
     # Step 3: Calculate GAE - works on (num_envs, num_agents, num_steps)
     advantages, target_values = calculate_gae(
-        transitions, next_value, next_terminated, gamma, gae_gamma
+        transitions, next_value, next_terminated, gamma, gae_gamma, value_normalizer
     )
 
     # Step 4: Flatten to batch dimension (num_envs * num_agents * num_steps,)
@@ -335,6 +338,7 @@ def calculate_gae(
     next_terminated: chex.Array,
     gamma: float,
     gae_gamma: float,
+    value_normalizer: Optional[ValueNorm] = None,
 ) -> Tuple[chex.Array, chex.Array]:
     """
     Calculate Generalized Advantage Estimation (GAE) for multi-agent trajectories.
@@ -352,6 +356,7 @@ def calculate_gae(
                         When False, episode was truncated → DO bootstrap (use next_value)
         gamma: Discount factor for future rewards (0 < gamma <= 1)
         gae_gamma: GAE lambda parameter (0 < gae_gamma <= 1)
+        value_normalizer: Optional value normalizer for denormalizing value predictions
 
     Returns:
         Tuple of (advantages, target_values) with shape (num_envs, num_agents, num_steps)
@@ -413,6 +418,22 @@ def calculate_gae(
     rewards = transitions.reward
     values = transitions.value
     dones = transitions.done  # Already (num_envs, num_agents, num_steps)
+
+    # Denormalize values if using value normalization
+    # Values from the network are in normalized space, need to convert to original scale for GAE
+    if value_normalizer is not None:
+        # Flatten for denormalization
+        num_envs, num_agents, num_steps = values.shape
+        values_flat = values.reshape(-1)
+        next_value_flat = next_value.reshape(-1)
+
+        # Denormalize
+        values_denorm_flat = value_normalizer.denormalize(values_flat)
+        next_value_denorm_flat = value_normalizer.denormalize(next_value_flat)
+
+        # Reshape back
+        values = values_denorm_flat.reshape(num_envs, num_agents, num_steps)
+        next_value = next_value_denorm_flat.reshape(num_envs, num_agents)
 
     # Infer shapes from arrays
     num_envs, num_agents, num_steps = rewards.shape

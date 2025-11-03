@@ -11,3 +11,4 @@ mag_coef: 0.01
 num_inner_update: 100
 num_outer_update: 10
 normalize_logprob: true  # Normalize log_prob and KL by action dimensions (important for multi-discrete)
+normalize_value: true # Normalizing the value function's targets

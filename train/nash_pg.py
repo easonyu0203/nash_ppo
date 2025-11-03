@@ -39,6 +39,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 from tqdm import tqdm
 import jax
+import jax.numpy as jnp
 from flax import nnx
 import chex
 import optax
@@ -49,7 +50,7 @@ from gymnasium.spaces import Dict as DictSpace
 from envs import create_env
 import envs.mytypes as env_types
 from agents import create_agent, BaseAgent
-from train.core import update_agent, collect_trajectories, process_transitions, RolloutBuffer
+from train.core import update_agent, collect_trajectories, process_transitions, RolloutBuffer, ValueNorm
 from train.loggers import create_logger, BaseLogger
 
 
@@ -63,6 +64,7 @@ class LearnerState:
     train_metrics: nnx.MultiMetric
     rollout_metrics: nnx.MultiMetric
     mag_agent: Optional[BaseAgent] # use for regularization
+    value_normalizer: Optional[ValueNorm] # use for value normalization
 
 
 def training_step(
@@ -92,7 +94,8 @@ def training_step(
         transitions, learner_state.rollout_metrics,
         next_value, next_terminated,
         gamma = config.algorithm.gamma,
-        gae_gamma = config.algorithm.gae_gamma
+        gae_gamma = config.algorithm.gae_gamma,
+        value_normalizer = learner_state.value_normalizer
     )
 
 
@@ -110,16 +113,17 @@ def training_step(
         num_minibatches = config.algorithm.num_minibatches,
         num_ppo_epoch = config.algorithm.num_ppo_epoch,
         normalize_logprob = config.algorithm.normalize_logprob,
+        value_normalizer = learner_state.value_normalizer,
     )
 
     return learner_state
 
 def log_metrics(learner_state: LearnerState, logger: BaseLogger, cur_num_update: int):
     """Log training and rollout metrics"""
-    
-    train_metrics = learner_state.train_metrics.compute() 
+
+    train_metrics = learner_state.train_metrics.compute()
     rollout_metrics = learner_state.rollout_metrics.compute()
-    
+
     # Log train metrics
     logger.log_train_metrics(train_metrics, cur_num_update)
 
@@ -131,6 +135,16 @@ def log_metrics(learner_state: LearnerState, logger: BaseLogger, cur_num_update:
         'return': ret
     }
     logger.log_rollout_metrics(processed_rollout_metrics, cur_num_update)
+
+    # Log value normalization statistics if enabled
+    if learner_state.value_normalizer is not None:
+        mean, var = learner_state.value_normalizer.running_mean_var()
+        value_norm_metrics = {
+            'value_norm/mean': mean[0],  # Extract scalar from shape (1,)
+            'value_norm/std': jnp.sqrt(var)[0],
+            'value_norm/debiasing_term': learner_state.value_normalizer.debiasing_term.value
+        }
+        logger.log_train_metrics(value_norm_metrics, cur_num_update)
 
     learner_state.train_metrics.reset()
     learner_state.rollout_metrics.reset()
@@ -173,6 +187,11 @@ def main(config: DictConfig):
             reward = nnx.metrics.Average("reward"),
         )
 
+        # setup value normalizer
+        value_normalizer = None
+        if config.algorithm.normalize_value:
+            value_normalizer = ValueNorm()
+
         # setup learner state
         key, learner_key = jax.random.split(key)
         learner_state = LearnerState(
@@ -183,6 +202,7 @@ def main(config: DictConfig):
             train_metrics=train_metrics,
             rollout_metrics=rollout_metrics,
             mag_agent=nnx.clone(agent), # init as the same
+            value_normalizer=value_normalizer,
         )
 
         # create buffer for CPU-side rollout storage

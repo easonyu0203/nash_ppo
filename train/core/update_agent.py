@@ -1,7 +1,8 @@
 import train.mytypes as train_types
 from agents import BaseAgent
+from train.core.value_norm import ValueNorm
 
-from typing import Any, Tuple
+from typing import Any, Tuple, Optional
 from functools import partial
 
 import jax
@@ -30,6 +31,7 @@ def update_agent(
     num_minibatches: int,
     num_ppo_epoch: int,
     normalize_logprob: bool = True,
+    value_normalizer: Optional[ValueNorm] = None,
 ) -> Tuple[BaseAgent, nnx.Optimizer, nnx.MultiMetric]:
     """
     Updates agent parameters using PPO with optional magnetic regularization.
@@ -50,13 +52,21 @@ def update_agent(
         num_ppo_epoch: Number of training epochs
         normalize_logprob: If True, normalize log_prob and KL divergence by number of action dimensions
                           (important for multi-discrete actions to prevent instability)
+        value_normalizer: Optional value normalizer for normalizing value targets
     Returns:
         Tuple of (updated_agent, updated_optimizer, updated_metrics)
     """
     batch_size = dataset.advantage.shape[0]
 
     assert batch_size % num_minibatches == 0, f"batch_size ({batch_size}) must be divisible by num_minibatches ({num_minibatches})"
-    
+
+    # Update value normalizer statistics and normalize targets BEFORE training loop
+    if value_normalizer is not None:
+        # Update running statistics with target returns
+        value_normalizer.update(dataset.target_value)
+        # Normalize target returns for all batches
+        dataset = dataset.replace(target_value=value_normalizer.normalize(dataset.target_value))
+
 
     def calculate_n_log_loss(
         agent: BaseAgent, dataset: train_types.Dataset, metrics: nnx.MultiMetric
@@ -120,6 +130,8 @@ def update_agent(
 
         """critic loss (masked mean)"""
         values = agent.get_value(dataset.observation)
+
+        # Compute value loss (values are already in normalized space if using value_normalizer)
         values_clipped = dataset.value + jnp.clip(values - dataset.value, -clip_eps, clip_eps)
         critic_loss1 = jnp.square(values - dataset.target_value)
         critic_loss2 = jnp.square(values_clipped - dataset.target_value)
@@ -133,7 +145,6 @@ def update_agent(
 
         # explained variance calculation (only over valid samples)
         masked_target = dataset.target_value * valid_mask
-        masked_values = values * valid_mask
         target_mean = jnp.sum(masked_target) / num_valid
         target_var = jnp.sum(valid_mask * jnp.square(dataset.target_value - target_mean)) / num_valid
         residual_var = jnp.sum(valid_mask * jnp.square(dataset.target_value - values)) / num_valid
