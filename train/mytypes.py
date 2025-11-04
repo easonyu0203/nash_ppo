@@ -13,7 +13,7 @@ class Transition:
     Note: All agents act simultaneously each timestep.
     - action, value, log_prob: shape (num_agents,)
     - reward: shape (num_agents,)
-    - observation, action_mask: shape (num_agents, ...)
+    - observation: shape (num_agents, ...)
     """
     done: chex.Array      # bool, episode boundaries
     action: chex.Array          # agent actions, shape (num_agents,)
@@ -21,7 +21,6 @@ class Transition:
     reward: chex.Array          # environment rewards per agent, shape (num_agents,)
     log_prob: chex.Array        # action log probabilities, shape (num_agents,)
     observation: env_types.Observation  # environment observations, shape (num_agents, ...)
-    action_mask: chex.Array     # valid action masks, shape (num_agents, ...)
 
 @chex.dataclass
 class Dataset:
@@ -37,7 +36,6 @@ class Dataset:
     value: chex.Array           # critic value estimates
     log_prob: chex.Array        # action log probabilities
     observation: env_types.Observation  # environment observations
-    action_mask: chex.Array     # valid action masks
     advantage: chex.Array       # GAE advantages
     target_value: chex.Array    # critic training targets
     valid_mask: chex.Array      # bool mask: True if transition is valid for training

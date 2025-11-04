@@ -104,8 +104,7 @@ def run_inference_server(
             key, action_key = jax.random.split(key)
             actions = agent.get_action(
                 timestep.observation[0],  # Remove area dimension
-                action_key,
-                timestep.action_mask[0]
+                action_key
             )
 
             # Step environment (add area dimension back)

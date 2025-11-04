@@ -61,27 +61,6 @@ class GymnasiumWrapper(BaseEnv):
     def action_space(self) -> Space:
         return self._env.action_space
 
-    @cached_property
-    def _default_action_mask(self) -> Action:
-        """
-        Generate default action mask (all actions available).
-        Returns array with shape (num_agents, num_actions) for Discrete spaces,
-        (num_agents, num_dims) for MultiDiscrete spaces,
-        or (num_agents, action_dim) for Box spaces (filled with ones, though ignored).
-        """
-        if isinstance(self.action_space, Discrete):
-            # All discrete actions are available
-            return np.ones((self.num_agents, self.action_space.n), dtype=np.int8)
-        elif isinstance(self.action_space, MultiDiscrete):
-            # All actions available for each dimension
-            return np.ones((self.num_agents, *self.action_space.nvec.shape), dtype=np.int8)
-        elif isinstance(self.action_space, Box):
-            # Continuous actions don't use masks, but we return ones for shape consistency
-            # Shape matches the action dimension from Box.shape
-            return np.ones((self.num_agents, *self.action_space.shape), dtype=np.int8)
-        else:
-            # Should never reach here due to __init__ checks
-            raise RuntimeError("Unsupported action space type")
 
     def reset(self, seed: int = None, options: Dict[str, Any] = None) -> TimeStep:
         """Reset the environment and return initial timestep."""
@@ -95,7 +74,6 @@ class GymnasiumWrapper(BaseEnv):
             terminated=np.array([False], dtype=bool),
             truncated=np.array([False], dtype=bool),
             observation=obs_wrapped,
-            action_mask=self._default_action_mask,
             info=info,
         )
 
@@ -119,7 +97,6 @@ class GymnasiumWrapper(BaseEnv):
             terminated=np.array([terminated], dtype=bool),
             truncated=np.array([truncated], dtype=bool),
             observation=obs_wrapped,
-            action_mask=self._default_action_mask,
             info=info,
         )
 

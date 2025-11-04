@@ -136,9 +136,9 @@ class AddAgentIDWrapper(Wrapper):
 
         return TimeStep(
             reward=timestep.reward,
-            done=timestep.done,
+            terminated=timestep.terminated,
+            truncated=timestep.truncated,
             observation=modified_obs,
-            action_mask=timestep.action_mask,
             info=timestep.info,
         )
 
@@ -151,8 +151,8 @@ class AddAgentIDWrapper(Wrapper):
 
         return TimeStep(
             reward=timestep.reward,
-            done=timestep.done,
+            terminated=timestep.terminated,
+            truncated=timestep.truncated,
             observation=modified_obs,
-            action_mask=timestep.action_mask,
             info=timestep.info,
         )

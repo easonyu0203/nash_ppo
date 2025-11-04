@@ -94,10 +94,9 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
         # Get action from agent
         # Convert numpy arrays to JAX arrays for agent inference
         obs_jax = jax.tree.map(jnp.asarray, timestep.observation)
-        action_mask_jax = jnp.asarray(timestep.action_mask)
 
         key, action_key = jax.random.split(key)
-        action_jax = agent.get_action(obs_jax, action_key, action_mask_jax)
+        action_jax = agent.get_action(obs_jax, action_key)
 
         # Convert action to numpy for env.step()
         action_np = np.array(action_jax)

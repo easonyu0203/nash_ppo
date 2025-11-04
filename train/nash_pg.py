@@ -214,14 +214,11 @@ def main(config: DictConfig):
 
         if isinstance(env.action_space, Discrete):
             action_shape = ()
-            action_mask_shape = (env.action_space.n,)
         elif isinstance(env.action_space, MultiDiscrete):
             action_shape = env.action_space.nvec.shape
-            action_mask_shape = env.action_space.nvec.shape
         elif isinstance(env.action_space, Box):
             # Continuous action space
             action_shape = env.action_space.shape
-            action_mask_shape = env.action_space.shape  # Dummy mask, not used but needed for buffer
         else:
             raise ValueError(f"Unsupported action space type: {type(env.action_space)}")
 
@@ -230,8 +227,7 @@ def main(config: DictConfig):
             num_steps=config.algorithm.num_steps,
             num_agents=env.num_agents,
             obs_shape=obs_shape,
-            action_shape=action_shape,
-            action_mask_shape=action_mask_shape
+            action_shape=action_shape
         )
 
         # setup logger

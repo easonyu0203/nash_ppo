@@ -72,7 +72,7 @@ def update_agent(
         agent: BaseAgent, dataset: train_types.Dataset, metrics: nnx.MultiMetric
     ) -> chex.Numeric:
         """calculate loss and log to metrics"""
-        dists = agent.get_action_distribution(dataset.observation, dataset.action_mask)
+        dists = agent.get_action_distribution(dataset.observation)
 
         # Extract validity mask and compute number of valid samples
         valid_mask = dataset.valid_mask.astype(jnp.float32)  # Convert bool to float for masking
@@ -116,7 +116,7 @@ def update_agent(
         # magnet loss (masked mean)
         mag_loss, mag_kl = 0, 0
         if mag_agent is not None:
-            mag_dists = mag_agent.get_action_distribution(dataset.observation, dataset.action_mask)
+            mag_dists = mag_agent.get_action_distribution(dataset.observation)
             kl_div = dists.kl_divergence(mag_dists)
             # Normalize KL divergence by action dimensions
             kl_div_normalized = kl_div / norm_factor

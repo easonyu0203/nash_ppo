@@ -61,7 +61,6 @@ class DummyVecEnv(BaseEnv):
                 - reward: (num_envs, num_agents)
                 - terminated: (num_envs, num_agents)
                 - truncated: (num_envs, num_agents)
-                - action_mask: (num_envs, num_agents, *action_shape)
         """
         timesteps = []
         for i, env in enumerate(self.envs):
@@ -101,9 +100,6 @@ class DummyVecEnv(BaseEnv):
         terminated = np.stack([ts.terminated for ts in timesteps], axis=0)
         truncated = np.stack([ts.truncated for ts in timesteps], axis=0)
 
-        # Stack action masks
-        action_masks = np.stack([ts.action_mask for ts in timesteps], axis=0)
-
         # Merge info dicts - add env index to keys to avoid collisions
         merged_info = {}
         for i, ts in enumerate(timesteps):
@@ -115,7 +111,6 @@ class DummyVecEnv(BaseEnv):
             reward=rewards,
             terminated=terminated,
             truncated=truncated,
-            action_mask=action_masks,
             info=merged_info,
         )
 

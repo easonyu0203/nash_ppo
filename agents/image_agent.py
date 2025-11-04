@@ -1,5 +1,4 @@
-from functools import partial
-from typing import Optional, Tuple, Sequence
+from typing import Tuple, Sequence
 from flax import nnx
 from agents import BaseAgent
 from agents.utils import layer_init
@@ -151,41 +150,34 @@ class ImageAgent(BaseAgent):
         layer_init(self, rngs.param())
         layer_init(self._policy_head, rngs.param(), std=0.01)
 
-    @partial(jax.jit, static_argnames=('self', ))
+    @jax.jit
     def get_value(self, observations: env_types.Observation) -> chex.Array:
         """Compute state value."""
         features: chex.Array = self.critic_extractor(observations)
         return self._critic_head(features).squeeze(-1)
 
-    @partial(jax.jit, static_argnames=('self', ))
-    def get_action(self, observations: env_types.Observation, key: chex.PRNGKey, action_masks: Optional[chex.Array] = None) -> chex.Array:
+    @jax.jit
+    def get_action(self, observations: env_types.Observation, key: chex.PRNGKey) -> chex.Array:
         """Sample action from policy."""
-        return self.get_action_distribution(observations, action_masks).sample(seed=key)
+        return self.get_action_distribution(observations).sample(seed=key)
 
-    @partial(jax.jit, static_argnames=('self', ))
+    @jax.jit
     def get_action_and_value(
-            self, observations: env_types.Observation, key: chex.PRNGKey, action_masks: Optional[chex.Array] = None
+            self, observations: env_types.Observation, key: chex.PRNGKey
         ) -> Tuple[chex.Array, chex.Array, chex.Array]:
         """Sample action and compute log probability and value."""
-        policy_features: chex.Array = self.policy_extractor(observations)
-        logits: chex.Array = self._policy_head(policy_features)
-        if action_masks is not None:
-            logits = jnp.where(action_masks, logits, -jnp.inf)
-
-        dist = distrax.Categorical(logits=logits)
+        dist = self.get_action_distribution(observations)
         actions, log_probs = dist.sample_and_log_prob(seed=key)
         critic_features: chex.Array = self.critic_extractor(observations)
         values = self._critic_head(critic_features).squeeze(-1)
 
         return actions, log_probs, values
 
-    @partial(jax.jit, static_argnames=('self', ))
+    @jax.jit
     def get_action_distribution(
-        self, observations: env_types.Observation, action_masks: Optional[chex.Array] = None
+        self, observations: env_types.Observation
     ) -> distrax.Distribution:
         """Get action distribution from policy network."""
         policy_features: chex.Array = self.policy_extractor(observations)
         logits: chex.Array = self._policy_head(policy_features)
-        if action_masks is not None:
-            logits = jnp.where(action_masks, logits, -jnp.inf)
         return distrax.Categorical(logits=logits)

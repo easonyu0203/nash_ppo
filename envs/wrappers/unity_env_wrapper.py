@@ -24,7 +24,6 @@ class UnityEnvWrapper(BaseEnv):
     - Uses area-based replication (num_areas) instead of multiple Unity instances
     - All agents step synchronously
     - Supports only discrete/multi-discrete action spaces
-    - Uses default action mask (all actions valid)
 
     Individual Agent Termination:
     - Agents can terminate individually (not all at once)
@@ -174,7 +173,7 @@ class UnityEnvWrapper(BaseEnv):
         print(f"  - Total agents: {total_agents} ({self._num_areas} areas × "
               f"{self._num_agents_per_area} agents)")
 
-        # Pre-allocate buffers for observations, rewards, dones, action_masks
+        # Pre-allocate buffers for observations, rewards, dones
         # to avoid repeated allocations on every step
         self._allocate_buffers()
 
@@ -288,20 +287,6 @@ class UnityEnvWrapper(BaseEnv):
             (self._num_areas, self._num_agents_per_area),
             dtype=bool
         )
-        # Cache the default action mask (all actions valid)
-        branches = self._behavior_spec.action_spec.discrete_branches
-        if self._behavior_spec.action_spec.discrete_size == 1:
-            n = int(branches[0])
-            self._action_mask_buffer = np.ones(
-                (self._num_areas, self._num_agents_per_area, n),
-                dtype=bool
-            )
-        else:
-            nvec = int(len(branches))
-            self._action_mask_buffer = np.ones(
-                (self._num_areas, self._num_agents_per_area, nvec),
-                dtype=bool
-            )
 
     def _build_agent_mapping_from_current_steps(self):
         """
@@ -338,7 +323,7 @@ class UnityEnvWrapper(BaseEnv):
 
     def _empty_batched_buffers(self):
         """
-        Zero out and return pre-allocated buffers for observations, rewards, terminated, truncated, action_mask.
+        Zero out and return pre-allocated buffers for observations, rewards, terminated, truncated.
 
         This avoids repeated memory allocations on every step by reusing buffers.
         Handles both single observation (array) and multiple observations (dict of arrays).
@@ -355,10 +340,8 @@ class UnityEnvWrapper(BaseEnv):
         self._reward_buffer.fill(0)
         self._terminated_buffer.fill(False)
         self._truncated_buffer.fill(False)
-        # Action mask buffer already contains all True values and doesn't need resetting
-        # since it represents the default "all actions valid" state
 
-        return self._obs_buffer, self._reward_buffer, self._terminated_buffer, self._truncated_buffer, self._action_mask_buffer
+        return self._obs_buffer, self._reward_buffer, self._terminated_buffer, self._truncated_buffer
 
     def _collect_steps(self):
         """
@@ -371,7 +354,7 @@ class UnityEnvWrapper(BaseEnv):
 
         Handles both single observation (array) and multiple observations (dict of arrays).
         """
-        observations, rewards, terminated, truncated, action_masks = self._empty_batched_buffers()
+        observations, rewards, terminated, truncated = self._empty_batched_buffers()
 
         # Determine if we have single or multiple observations
         is_dict_obs = isinstance(observations, dict)
@@ -439,7 +422,7 @@ class UnityEnvWrapper(BaseEnv):
                         terminated[area_idx, local_idx] = True
                         truncated[area_idx, local_idx] = False
 
-        return observations, rewards, terminated, truncated, action_masks
+        return observations, rewards, terminated, truncated
 
     # ----------------- Public API -----------------
     def reset(
@@ -456,14 +439,13 @@ class UnityEnvWrapper(BaseEnv):
         self._build_agent_mapping_from_current_steps()
 
         # Collect initial state (should be only decision steps, no terminals)
-        observations, rewards, terminated, truncated, action_masks = self._collect_steps()
+        observations, rewards, terminated, truncated = self._collect_steps()
 
         return TimeStep(
             reward=rewards,
             terminated=terminated,
             truncated=truncated,
             observation=observations,
-            action_mask=action_masks,
             info={}
         )
 
@@ -515,14 +497,13 @@ class UnityEnvWrapper(BaseEnv):
         self._unity_env.step()
 
         # Collect the resulting steps (observations, rewards, terminated, truncated)
-        observations, rewards, terminated, truncated, action_masks = self._collect_steps()
+        observations, rewards, terminated, truncated = self._collect_steps()
 
         return TimeStep(
             reward=rewards,
             terminated=terminated,
             truncated=truncated,
             observation=observations,
-            action_mask=action_masks,
             info={}
         )
 

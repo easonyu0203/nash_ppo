@@ -198,7 +198,6 @@ def inspect_unity_environment(
         timestep = wrapper.reset(seed=0)
         print(f"\n    TimeStep structure after reset:")
         print(f"      - observation.shape: {timestep.observation.shape}")
-        print(f"      - action_mask.shape: {timestep.action_mask.shape}")
         print(f"      - reward.shape: {timestep.reward.shape}")
         print(f"      - terminated.shape: {timestep.terminated.shape}")
         print(f"      - truncated.shape: {timestep.truncated.shape}")
@@ -210,11 +209,6 @@ def inspect_unity_environment(
         print(f"      - Mean/Std: {sample_obs.mean():.3f} ± {sample_obs.std():.3f}")
         if sample_obs.size <= 20:
             print(f"      - Values: {sample_obs}")
-
-        print(f"\n    Sample action_mask (first agent):")
-        sample_mask = timestep.action_mask[0, 0]  # First area, first agent
-        print(f"      - Shape: {sample_mask.shape}")
-        print(f"      - Values: {sample_mask}")
 
         wrapper.close()
 

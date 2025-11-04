@@ -30,14 +30,13 @@ class BaseAgent(nnx.Module, ConfigurableAgent, abc.ABC):
         pass
     
     @abc.abstractmethod
-    def get_action(self, observations: env_types.Observation, key: chex.PRNGKey, action_masks: Optional[chex.Array] = None) -> env_types.Action:
+    def get_action(self, observations: env_types.Observation, key: chex.PRNGKey) -> env_types.Action:
         """Sample action from policy network.
-        
+
         Args:
             observations (batch_size, *observation_shape): Observation tensor
             key (): JAX random key for sampling
-            action_masks (batch_size, num_actions): Binary mask for valid actions
-            
+
         Returns:
             Sampled actions of shape (batch_size, )
         """
@@ -45,15 +44,14 @@ class BaseAgent(nnx.Module, ConfigurableAgent, abc.ABC):
     
     @abc.abstractmethod
     def get_action_and_value(
-            self, observations: env_types.Observation, key: chex.PRNGKey, action_masks: Optional[chex.Array] = None
+            self, observations: env_types.Observation, key: chex.PRNGKey
         ) -> Tuple[env_types.Action, chex.Array, chex.Array]:
         """Sample action and compute log probability and value simultaneously.
-        
+
         Args:
             observations (batch_size, *observation_shape): Observation tensor
             key (): JAX random key for sampling
-            action_masks (batch_size, num_actions): Binary mask for valid actions
-        
+
         Returns:
             Tuple of (action, log_prob, value) arrays of shape (batch_size,)
         """
@@ -61,14 +59,13 @@ class BaseAgent(nnx.Module, ConfigurableAgent, abc.ABC):
     
     @abc.abstractmethod
     def get_action_distribution(
-        self, observations: env_types.Observation, action_masks: Optional[chex.Array] = None
+        self, observations: env_types.Observation
     ) -> distrax.Distribution:
         """Get action distribution
-        
+
         Args:
             observations: Observation tensor of shape (batch_size, *observation_shape)
-            action_masks (batch_size, num_actions): Binary mask for valid actions
-            
+
         Returns:
             distrax.Distribution of shape (batch_size, )
         """

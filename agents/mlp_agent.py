@@ -1,54 +1,37 @@
-from typing import Optional, Tuple, Union, Literal
-from flax import nnx
-from agents import BaseAgent
-from agents.utils import layer_init
+from typing import Tuple, Union, Literal
 import jax
 import jax.numpy as jnp
 import chex
 import distrax
+from flax import nnx
+
+from agents import BaseAgent
+from agents.utils import layer_init
 import envs.mytypes as env_types
+
 
 ActionSpaceType = Literal["discrete", "multi_discrete", "continuous"]
 
+
 class FeatureExtractor(nnx.Module):
+    """Simple MLP-based feature extractor."""
 
     def __init__(self, key: chex.PRNGKey, input_dim: int, mlp_dim: int, num_hidden_layers: int = 1):
         rngs = nnx.Rngs(key)
+        layers = [nnx.Linear(input_dim, mlp_dim, rngs=rngs), nnx.relu]
 
-        # Build sequential layers
-        layers = []
-        # First layer: input_dim -> mlp_dim
-        layers.extend([
-            nnx.Linear(in_features=input_dim, out_features=mlp_dim, rngs=rngs),
-            nnx.relu
-        ])
-        # Hidden layers: mlp_dim -> mlp_dim
         for _ in range(num_hidden_layers - 1):
-            layers.extend([
-                nnx.Linear(in_features=mlp_dim, out_features=mlp_dim, rngs=rngs),
-                nnx.relu
-            ])
+            layers += [nnx.Linear(mlp_dim, mlp_dim, rngs=rngs), nnx.relu]
 
         self.mlp = nnx.Sequential(*layers)
-        
+
     def __call__(self, observations: chex.Array) -> chex.Array:
-        # Flatten input
         flattened = observations.reshape(observations.shape[0], -1).astype(jnp.float32)
-        result: chex.Array = self.mlp(flattened)
-        return result
+        return self.mlp(flattened)
+
 
 class MLPAgent(BaseAgent):
-
-    def __init__(
-        self,
-        key: chex.PRNGKey,
-        input_dim: int,
-        output_dim: Union[int, Tuple[int, ...]],
-        action_space_type: ActionSpaceType = "discrete",
-        mlp_dim: int = 64,
-        num_hidden_layers: int = 3
-    ):
-        """Initialize MLPAgent with support for discrete, multi-discrete, and continuous actions.
+    """Initialize MLPAgent with support for discrete, multi-discrete, and continuous actions.
 
         Args:
             key: JAX random key
@@ -60,63 +43,67 @@ class MLPAgent(BaseAgent):
             mlp_dim: Hidden layer dimension
             num_hidden_layers: Number of hidden layers
         """
+
+    def __init__(
+        self,
+        key: chex.PRNGKey,
+        input_dim: int,
+        output_dim: Union[int, Tuple[int, ...]],
+        action_space_type: ActionSpaceType = "discrete",
+        mlp_dim: int = 64,
+        num_hidden_layers: int = 3,
+    ):
         key1, key2, key3 = jax.random.split(key, 3)
         rngs = nnx.Rngs(key3)
 
-        # Store action space type and dimensions
         self.action_space_type = action_space_type
         self.output_dim = output_dim
 
-        # Separate feature extractors for policy and critic (no parameter sharing)
+        # Separate feature extractors for policy and critic
         self.policy_extractor = FeatureExtractor(key1, input_dim, mlp_dim, num_hidden_layers)
         self.critic_extractor = FeatureExtractor(key2, input_dim, mlp_dim, num_hidden_layers)
 
-        # Policy and critic heads
+        # Policy heads
         if action_space_type == "multi_discrete":
-            # Create separate head for each action dimension
-            # Each head outputs logits for its respective action space
             self._policy_heads = nnx.List([
-                nnx.Linear(in_features=mlp_dim, out_features=n_actions, rngs=rngs)
+                nnx.Linear(mlp_dim, n_actions, rngs=rngs)
                 for n_actions in output_dim
             ])
         elif action_space_type == "continuous":
-            # For continuous actions: output mean values
-            # output_dim should be an int representing the action dimension
-            assert isinstance(output_dim, int), f"For continuous actions, output_dim must be int, got {type(output_dim)}"
-            self._policy_mean = nnx.Linear(in_features=mlp_dim, out_features=output_dim, rngs=rngs)
-            # State-independent log_std as a learnable parameter
+            assert isinstance(output_dim, int), f"Continuous actions require int output_dim, got {type(output_dim)}"
+            self._policy_mean = nnx.Linear(mlp_dim, output_dim, rngs=rngs)
             self._policy_log_std = nnx.Param(jnp.zeros(output_dim))
         else:  # discrete
-            # Single head for discrete actions
-            self._policy_head = nnx.Linear(in_features=mlp_dim, out_features=output_dim, rngs=rngs)
+            self._policy_head = nnx.Linear(mlp_dim, output_dim, rngs=rngs)
 
-        self._critic_head = nnx.Linear(in_features=mlp_dim, out_features=1, rngs=rngs)
+        # Critic head
+        self._critic_head = nnx.Linear(mlp_dim, 1, rngs=rngs)
 
-        # Initialize modules
+        # Initialize layers
         layer_init(self, rngs.param())
-        if action_space_type == "multi_discrete":
+        self._init_policy_heads(rngs)
+
+    def _init_policy_heads(self, rngs: nnx.Rngs):
+        """Initialize policy heads with small std."""
+        if self.action_space_type == "multi_discrete":
             for head in self._policy_heads:
                 layer_init(head, rngs.param(), std=0.01)
-        elif action_space_type == "continuous":
+        elif self.action_space_type == "continuous":
             layer_init(self._policy_mean, rngs.param(), std=0.01)
         else:
             layer_init(self._policy_head, rngs.param(), std=0.01)
 
-    @jax.jit
-    def get_value(self, observations: env_types.Observation) -> chex.Array:
-        """Compute state value."""
-        features: chex.Array = self.critic_extractor(observations)
-        return self._critic_head(features).squeeze(-1)
+    # ===== Value functions =====
 
     @jax.jit
-    def get_action(self, observations: env_types.Observation, key: chex.PRNGKey, action_masks: Optional[chex.Array] = None) -> chex.Array:
-        """Sample action from policy."""
-        return self.get_action_distribution(observations, action_masks).sample(seed=key)
-    
+    def get_value(self, observations: env_types.Observation) -> chex.Array:
+        """Compute state value estimate."""
+        return self._critic_head(self.critic_extractor(observations)).squeeze(-1)
+
+    # ===== Policy functions =====
+
     @jax.jit
-    def get_action_and_value(
-            self, observations: env_types.Observation, key: chex.PRNGKey, action_masks: Optional[chex.Array] = None
-        ) -> Tuple[chex.Array, chex.Array, chex.Array]:
+    def get_action_distribution(self, observations: env_types.Observation) -> distrax.Distribution:
         """Sample action and compute log probability and value.
 
         For continuous actions:
@@ -129,49 +116,30 @@ class MLPAgent(BaseAgent):
             - action_masks shape: (batch_size, n_actions)
             - returns actions of shape: (batch_size,)
         """
-        policy_features: chex.Array = self.policy_extractor(observations)
+        features = self.policy_extractor(observations)
 
         if self.action_space_type == "multi_discrete":
-            # Multi-discrete: action masking not supported (action_masks ignored if provided)
-            # Get logits for each action dimension
-            logits_list = [head(policy_features) for head in self._policy_heads]
-            # Stack to shape: (batch_size, n_dims, n_actions_per_dim)
-            logits = jnp.stack(logits_list, axis=1)
+            logits = jnp.stack([head(features) for head in self._policy_heads], axis=1)
+            return distrax.Independent(distrax.Categorical(logits=logits), reinterpreted_batch_ndims=1)
 
-            # Create Independent distribution over Categorical distributions
-            categoricals = distrax.Categorical(logits=logits)
-            dist = distrax.Independent(categoricals, reinterpreted_batch_ndims=1)
-            actions, log_probs = dist.sample_and_log_prob(seed=key)
         elif self.action_space_type == "continuous":
-            # Continuous: action masking not supported (action_masks ignored if provided)
-            # Get mean from policy network
-            mean: chex.Array = self._policy_mean(policy_features)
-            # Get std from state-independent log_std parameter
+            mean = self._policy_mean(features)
             std = jnp.exp(self._policy_log_std)
+            return distrax.Independent(distrax.Normal(mean, std), reinterpreted_batch_ndims=1)
 
-            # Create independent normal distribution for each action dimension
-            # Using Normal + Independent instead of MultivariateNormalDiag to avoid tracer leaks
-            normal_dist = distrax.Normal(loc=mean, scale=std)
-            dist = distrax.Independent(normal_dist, reinterpreted_batch_ndims=1)
-            actions, log_probs = dist.sample_and_log_prob(seed=key)
-        else:  # discrete
-            # Discrete action space (original behavior)
-            logits: chex.Array = self._policy_head(policy_features)
-            if action_masks is not None:
-                logits = jnp.where(action_masks, logits, -jnp.inf)
-
-            dist = distrax.Categorical(logits=logits)
-            actions, log_probs = dist.sample_and_log_prob(seed=key)
-
-        critic_features: chex.Array = self.critic_extractor(observations)
-        values = self._critic_head(critic_features).squeeze(-1)
-
-        return actions, log_probs, values
+        # Discrete
+        logits = self._policy_head(features)
+        return distrax.Categorical(logits=logits)
 
     @jax.jit
-    def get_action_distribution(
-        self, observations: env_types.Observation, action_masks: Optional[chex.Array] = None
-    ) -> distrax.Distribution:
+    def get_action(self, observations: env_types.Observation, key: chex.PRNGKey) -> chex.Array:
+        """Sample an action from the current policy."""
+        return self.get_action_distribution(observations).sample(seed=key)
+
+    @jax.jit
+    def get_action_and_value(
+        self, observations: env_types.Observation, key: chex.PRNGKey
+    ) -> Tuple[chex.Array, chex.Array, chex.Array]:
         """Get action distribution from policy network.
 
         Returns:
@@ -179,32 +147,7 @@ class MLPAgent(BaseAgent):
             For multi-discrete: Independent distribution wrapping Categorical distributions
             For discrete: Categorical distribution
         """
-        policy_features: chex.Array = self.policy_extractor(observations)
-
-        if self.action_space_type == "multi_discrete":
-            # Multi-discrete: action masking not supported (action_masks ignored if provided)
-            # Get logits for each action dimension
-            logits_list = [head(policy_features) for head in self._policy_heads]
-            # Stack to shape: (batch_size, n_dims, n_actions_per_dim)
-            logits = jnp.stack(logits_list, axis=1)
-
-            # Create Independent distribution over Categorical distributions
-            categoricals = distrax.Categorical(logits=logits)
-            return distrax.Independent(categoricals, reinterpreted_batch_ndims=1)
-        elif self.action_space_type == "continuous":
-            # Continuous: action masking not supported (action_masks ignored if provided)
-            # Get mean from policy network
-            mean: chex.Array = self._policy_mean(policy_features)
-            # Get std from state-independent log_std parameter
-            std = jnp.exp(self._policy_log_std)
-
-            # Create independent normal distribution for each action dimension
-            # Using Normal + Independent instead of MultivariateNormalDiag to avoid tracer leaks
-            normal_dist = distrax.Normal(loc=mean, scale=std)
-            return distrax.Independent(normal_dist, reinterpreted_batch_ndims=1)
-        else:  # discrete
-            # Discrete action space (original behavior)
-            logits: chex.Array = self._policy_head(policy_features)
-            if action_masks is not None:
-                logits = jnp.where(action_masks, logits, -jnp.inf)
-            return distrax.Categorical(logits=logits)
+        dist = self.get_action_distribution(observations)
+        actions, log_probs = dist.sample_and_log_prob(seed=key)
+        values = self.get_value(observations)
+        return actions, log_probs, values

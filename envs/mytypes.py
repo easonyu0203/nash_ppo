@@ -14,7 +14,6 @@ class TimeStep:
     terminated: np.ndarray # (num_agents, ) - natural episode end
     truncated: np.ndarray # (num_agents, ) - artificial time limit
     observation: Observation # (num_agents, *obs_shape, )
-    action_mask: Action # (num_agents, *obs_shape, )
     info: Dict[str, np.ndarray]
 
 

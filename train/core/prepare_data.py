@@ -18,7 +18,7 @@ class RolloutBuffer:
     Stores data as NumPy arrays for efficient CPU environment interaction.
     Supports both array and Dict observation spaces.
     """
-    def __init__(self, num_envs: int, num_steps: int, num_agents: int, obs_shape, action_shape: tuple, action_mask_shape: tuple):
+    def __init__(self, num_envs: int, num_steps: int, num_agents: int, obs_shape, action_shape: tuple):
         """
         Args:
             num_envs: Number of parallel environments
@@ -28,9 +28,6 @@ class RolloutBuffer:
             action_shape: Shape of actions (per agent)
                         - Discrete: () - scalar
                         - MultiDiscrete: (n,) - vector
-            action_mask_shape: Shape of action masks (per agent)
-                        - Discrete(n): (n,) - binary mask
-                        - MultiDiscrete: (n,) - binary mask per dimension
         """
         self.num_envs = num_envs
         self.num_steps = num_steps
@@ -53,13 +50,11 @@ class RolloutBuffer:
         else:
             self.observations = np.zeros((num_envs, num_steps, num_agents, *obs_shape), dtype=np.float32)
 
-        self.action_masks = np.zeros((num_envs, num_steps, num_agents, *action_mask_shape), dtype=np.int8)
-
     def reset(self):
         """Reset buffer for new collection"""
         self.step = 0
 
-    def add(self, done, action, value, reward, log_prob, observation, action_mask):
+    def add(self, done, action, value, reward, log_prob, observation):
         """Add a timestep of data to buffer
 
         Args:
@@ -69,7 +64,6 @@ class RolloutBuffer:
             reward: Rewards received, shape (num_envs, num_agents)
             log_prob: Log probabilities, shape (num_envs, num_agents)
             observation: Observations, shape (num_envs, num_agents, ...) or dict of such
-            action_mask: Action masks, shape (num_envs, num_agents, ...)
         """
         self.dones[:, self.step, :] = done
         self.actions[:, self.step] = action
@@ -84,7 +78,6 @@ class RolloutBuffer:
         else:
             self.observations[:, self.step] = observation
 
-        self.action_masks[:, self.step] = action_mask
         self.step += 1
 
     def to_jax(self) -> train_types.Transition:
@@ -96,7 +89,6 @@ class RolloutBuffer:
             reward=jnp.asarray(self.rewards),
             log_prob=jnp.asarray(self.log_probs),
             observation=jax.tree.map(jnp.asarray, self.observations),
-            action_mask=jnp.asarray(self.action_masks),
         )
 
 
@@ -119,7 +111,6 @@ def rearrange_transitions(transitions: train_types.Transition) -> train_types.Tr
         reward=swap_axes(transitions.reward),
         log_prob=swap_axes(transitions.log_prob),
         observation=jax.tree.map(swap_axes, transitions.observation),
-        action_mask=swap_axes(transitions.action_mask),
     )
 
 
@@ -154,7 +145,6 @@ def create_dataset(
         value=transitions.value.reshape(batch_size),
         log_prob=transitions.log_prob.reshape(batch_size),
         observation=jax.tree.map(flatten_to_batch, transitions.observation),
-        action_mask=flatten_to_batch(transitions.action_mask),
         advantage=advantages.reshape(batch_size),
         target_value=target_values.reshape(batch_size),
         valid_mask=valid_mask.reshape(batch_size),
@@ -218,18 +208,16 @@ def collect_trajectories(
 
         # === Convert NumPy → JAX for agent inference ===
         obs_jax = jax.tree.map(jnp.asarray, last_timestep.observation)
-        action_mask_jax = jnp.asarray(last_timestep.action_mask)
 
         # Flatten env and agent dims for agent: (num_envs, num_agents, ...) → (batch, ...)
         batch_size = num_envs * num_agents
         def flatten_batch(x):
             return x.reshape(batch_size, *x.shape[2:])
         obs_flat = jax.tree.map(flatten_batch, obs_jax)
-        action_mask_flat = action_mask_jax.reshape(batch_size, *action_mask_jax.shape[2:])
 
         # Agent forward pass (JAX, runs on GPU)
         actions_flat, log_probs_flat, values_flat = agent.get_action_and_value(
-            obs_flat, act_key, action_mask_flat
+            obs_flat, act_key
         )
 
         # Unflatten back: (batch,) → (num_envs, num_agents, ...)
@@ -256,7 +244,6 @@ def collect_trajectories(
             reward=new_timestep.reward,      # (num_envs, num_agents)
             log_prob=log_probs_np,           # (num_envs, num_agents)
             observation=last_timestep.observation,  # (num_envs, num_agents, ...)
-            action_mask=last_timestep.action_mask,  # (num_envs, num_agents, ...)
         )
 
         last_timestep = new_timestep

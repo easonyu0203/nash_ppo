@@ -184,13 +184,6 @@ class PettingZooWrapper(BaseEnv):
     def action_space(self) -> Space:
         return self._action_space
 
-    @cached_property
-    def _default_action_mask(self) -> Action:
-        """
-        Generate default action mask (all actions available).
-        Returns array with shape (num_agents, num_actions).
-        """
-        return np.ones((self.num_agents, self.action_space.n), dtype=np.int8)
 
     def _dict_to_array(self, agent_dict: Dict[str, Any]) -> np.ndarray:
         """
@@ -267,7 +260,6 @@ class PettingZooWrapper(BaseEnv):
             terminated=np.zeros(self.num_agents, dtype=bool),
             truncated=np.zeros(self.num_agents, dtype=bool),
             observation=obs_array,
-            action_mask=self._default_action_mask,
             info=infos,
         )
 
@@ -304,7 +296,6 @@ class PettingZooWrapper(BaseEnv):
             terminated=terminated_array,
             truncated=truncated_array,
             observation=obs_array,
-            action_mask=self._default_action_mask,
             info=infos,
         )
 
