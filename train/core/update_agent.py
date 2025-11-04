@@ -82,12 +82,10 @@ def update_agent(
         log_prob = dists.log_prob(dataset.action)
 
         # Compute normalization factor based on action dimensions
-        # For discrete: action.ndim = 1, n_action_dims = 1
-        # For multi-discrete: action.ndim = 2, n_action_dims = action.shape[-1]
         n_action_dims = jnp.where(
             dataset.action.ndim == 1,
             1,  # discrete action
-            dataset.action.shape[-1]  # multi-discrete action
+            dataset.action.shape[-1]  # multi-discrete action or continuous action
         )
         # If normalize_logprob=False, use 1.0; otherwise use n_action_dims
         norm_factor = jnp.where(normalize_logprob, jnp.float32(n_action_dims), jnp.float32(1.0))

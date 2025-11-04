@@ -1,5 +1,6 @@
 agent_name: "mlp"
 input_dim: 5  # 4 (original obs) + 1 (agent ID)
 output_dim: 5  # Discrete(5) actions
+action_space_type: "discrete"
 mlp_dim: 64
 num_hidden_layers: 2

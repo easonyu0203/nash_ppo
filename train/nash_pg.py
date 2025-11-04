@@ -8,14 +8,14 @@ Usage:
                         algorithm.mag_coef=0.2 \
                         logging.save_interval=1000 \
                         run_name=robot_warehouse/ippo/default_run
-    
+
     CUDA_VISIBLE_DEVICES=0 uv run train/nash_pg.py \
                             algorithm.num_inner_update=200 \
                             algorithm.num_outer_update=100 \
                             logging.save_interval=2000 \
 
 Assumption:
-* Action space is Discrete or MultiDiscrete
+* Action space is Discrete, MultiDiscrete, or Box (continuous)
 * Action space and Observation space are same for all agents
 """
 
@@ -45,7 +45,7 @@ import chex
 import optax
 import hydra
 from omegaconf import DictConfig
-from gymnasium.spaces import Dict as DictSpace
+from gymnasium.spaces import Dict as DictSpace, Discrete, MultiDiscrete, Box
 
 from envs import create_env
 import envs.mytypes as env_types
@@ -212,12 +212,18 @@ def main(config: DictConfig):
         else:
             obs_shape = env.observation_space.shape
 
-        if hasattr(env.action_space, 'n'):  # Discrete
+        if isinstance(env.action_space, Discrete):
             action_shape = ()
             action_mask_shape = (env.action_space.n,)
-        else:  # MultiDiscrete
+        elif isinstance(env.action_space, MultiDiscrete):
             action_shape = env.action_space.nvec.shape
             action_mask_shape = env.action_space.nvec.shape
+        elif isinstance(env.action_space, Box):
+            # Continuous action space
+            action_shape = env.action_space.shape
+            action_mask_shape = env.action_space.shape  # Dummy mask, not used but needed for buffer
+        else:
+            raise ValueError(f"Unsupported action space type: {type(env.action_space)}")
 
         buffer = RolloutBuffer(
             num_envs=config.algorithm.num_envs,

@@ -3,7 +3,7 @@ from functools import cached_property
 import numpy as np
 import gymnasium as gym
 from gymnasium import Space
-from gymnasium.spaces import Dict as DictSpace, Discrete, MultiDiscrete
+from gymnasium.spaces import Dict as DictSpace, Discrete, MultiDiscrete, Box
 
 from envs.mytypes import BaseEnv, TimeStep, Action
 
@@ -37,9 +37,9 @@ class GymnasiumWrapper(BaseEnv):
                 f"Got: {env.action_space}"
             )
 
-        if not isinstance(env.action_space, (Discrete, MultiDiscrete)):
+        if not isinstance(env.action_space, (Discrete, MultiDiscrete, Box)):
             raise ValueError(
-                f"Only Discrete and MultiDiscrete action spaces are supported. "
+                f"Only Discrete, MultiDiscrete, and Box action spaces are supported. "
                 f"Got: {type(env.action_space).__name__}"
             )
 
@@ -66,7 +66,8 @@ class GymnasiumWrapper(BaseEnv):
         """
         Generate default action mask (all actions available).
         Returns array with shape (num_agents, num_actions) for Discrete spaces,
-        or (num_agents, num_dims) for MultiDiscrete spaces.
+        (num_agents, num_dims) for MultiDiscrete spaces,
+        or (num_agents, action_dim) for Box spaces (filled with ones, though ignored).
         """
         if isinstance(self.action_space, Discrete):
             # All discrete actions are available
@@ -74,6 +75,10 @@ class GymnasiumWrapper(BaseEnv):
         elif isinstance(self.action_space, MultiDiscrete):
             # All actions available for each dimension
             return np.ones((self.num_agents, *self.action_space.nvec.shape), dtype=np.int8)
+        elif isinstance(self.action_space, Box):
+            # Continuous actions don't use masks, but we return ones for shape consistency
+            # Shape matches the action dimension from Box.shape
+            return np.ones((self.num_agents, *self.action_space.shape), dtype=np.int8)
         else:
             # Should never reach here due to __init__ checks
             raise RuntimeError("Unsupported action space type")

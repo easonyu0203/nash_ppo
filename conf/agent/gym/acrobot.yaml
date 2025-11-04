@@ -1,5 +1,6 @@
 agent_name: "mlp"
 input_dim: 6
 output_dim: 3
+action_space_type: "discrete"
 mlp_dim: 64
 num_hidden_layers: 2

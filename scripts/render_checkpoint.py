@@ -2,7 +2,7 @@
 Render one episode using a trained agent checkpoint.
 
 Usage:
-    uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/mpe/simple_tag/nash_pg/default_run --step 2000 --env-config conf/env/mpe/simple_tag.yaml --seed 100 --fps 30
+    uv run scripts/render_checkpoint.py --checkpoint-dir ./checkpoints/gym/pendulum --step 900 --env-config conf/env/gym/pendulum.yaml --seed 100 --fps 30
 """
 
 import os
@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore", message=".*Sharding info not provided.*")
 import argparse
 import time
 import jax
+import jax.numpy as jnp
 import numpy as np
 from omegaconf import OmegaConf
 
@@ -87,10 +88,16 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
         return
 
     # Run episode (continue while not all agents are done)
-    while not timestep.done.all() and step_count < max_steps:
+    # Episode ends when all agents are terminated or truncated
+    done = timestep.terminated | timestep.truncated
+    while not done.all() and step_count < max_steps:
         # Get action from agent
+        # Convert numpy arrays to JAX arrays for agent inference
+        obs_jax = jax.tree.map(jnp.asarray, timestep.observation)
+        action_mask_jax = jnp.asarray(timestep.action_mask)
+
         key, action_key = jax.random.split(key)
-        action_jax = agent.get_action(timestep.observation, action_key, timestep.action_mask)
+        action_jax = agent.get_action(obs_jax, action_key, action_mask_jax)
 
         # Convert action to numpy for env.step()
         action_np = np.array(action_jax)
@@ -101,6 +108,9 @@ def play_episode(checkpoint_dir: str, step: int, env_config_path: str, seed: int
         # Accumulate reward from this step
         episode_reward = episode_reward + np.array(timestep.reward)
         step_count += 1
+
+        # Update done status
+        done = timestep.terminated | timestep.truncated
 
         # Render current state
         env.render()
