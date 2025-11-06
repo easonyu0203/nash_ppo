@@ -6,6 +6,7 @@ checkpoint saving, and metric logging.
 """
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax
 from flax import nnx
@@ -13,9 +14,12 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 import envs.mytypes as env_types
-from train.core import update_agent, collect_trajectories, process_transitions, RolloutBuffer
-from train.loggers import BaseLogger
-from train.setup import LearnerState, process_rollout_metrics, create_value_norm_metrics
+from train.data import collect_trajectories, process_transitions, RolloutBuffer
+from train.infrastructure.loggers import BaseLogger
+from train.infrastructure.learner import LearnerState, process_rollout_metrics, create_value_norm_metrics
+
+if TYPE_CHECKING:
+    from train.algorithms import update_agent
 
 
 def training_step(
@@ -59,6 +63,7 @@ def training_step(
     )
 
     # Perform PPO update
+    from train.algorithms import update_agent
     learner_state.agent, learner_state.optimizer, learner_state.train_metrics = update_agent(
         agent=learner_state.agent,
         mag_agent=learner_state.mag_agent,

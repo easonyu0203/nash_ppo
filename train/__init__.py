@@ -1,41 +1,55 @@
 """
 Training module for Nash PPO.
 
-This module provides:
-- Core training utilities (data preparation, agent updates)
-- Setup functions (learner state, buffers, metrics)
-- Training loop orchestration
-- Logging utilities
+Organized into:
+- algorithms/: PPO update logic and value normalization
+- data/: Trajectory collection, buffering, and processing
+- infrastructure/: Learner state, training loop, logging, types
 """
 
-from train.setup import (
+# Core algorithm components
+from train.algorithms import update_agent, ValueNorm
+
+# Data handling
+from train.data import (
+    RolloutBuffer,
+    collect_trajectories,
+    process_transitions,
+)
+
+# Infrastructure
+from train.infrastructure import (
     LearnerState,
     create_learner_state,
     create_rollout_buffer,
     create_training_metrics,
     create_rollout_metrics,
-    process_rollout_metrics,
-    create_value_norm_metrics,
-)
-from train.training_loop import (
     training_step,
     log_metrics,
     save_checkpoint,
     run_training_loop,
+    create_logger,
+    BaseLogger,
 )
 
 __all__ = [
-    # Setup utilities
+    # Algorithms
+    "update_agent",
+    "ValueNorm",
+    # Data
+    "RolloutBuffer",
+    "collect_trajectories",
+    "process_transitions",
+    # Infrastructure
     "LearnerState",
     "create_learner_state",
     "create_rollout_buffer",
     "create_training_metrics",
     "create_rollout_metrics",
-    "process_rollout_metrics",
-    "create_value_norm_metrics",
-    # Training loop utilities
     "training_step",
     "log_metrics",
     "save_checkpoint",
     "run_training_loop",
+    "create_logger",
+    "BaseLogger",
 ]

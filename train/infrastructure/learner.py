@@ -7,7 +7,7 @@ training components like learner state, buffers, metrics, etc.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -19,7 +19,10 @@ from gymnasium.spaces import Dict as DictSpace, Discrete, MultiDiscrete, Box
 
 import envs.mytypes as env_types
 from agents import create_agent, BaseAgent
-from train.core import RolloutBuffer, ValueNorm
+from train.data import RolloutBuffer
+
+if TYPE_CHECKING:
+    from train.algorithms import ValueNorm
 
 
 @dataclass
@@ -32,7 +35,7 @@ class LearnerState:
     train_metrics: nnx.MultiMetric
     rollout_metrics: nnx.MultiMetric
     mag_agent: Optional[BaseAgent]  # use for regularization
-    value_normalizer: Optional[ValueNorm]  # use for value normalization
+    value_normalizer: Optional['ValueNorm']  # use for value normalization
 
 
 def infer_buffer_shapes(env: env_types.BaseEnv) -> Tuple:
@@ -157,6 +160,7 @@ def create_learner_state(
     # Create value normalizer if enabled
     value_normalizer = None
     if config.algorithm.normalize_value:
+        from train.algorithms import ValueNorm
         value_normalizer = ValueNorm()
 
     # Create learner state
@@ -192,7 +196,7 @@ def process_rollout_metrics(rollout_metrics: dict) -> dict:
     }
 
 
-def create_value_norm_metrics(value_normalizer: ValueNorm) -> dict:
+def create_value_norm_metrics(value_normalizer: 'ValueNorm') -> dict:
     """
     Extract value normalization statistics for logging.
 

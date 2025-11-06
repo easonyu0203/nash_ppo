@@ -1,6 +1,6 @@
-import train.mytypes as train_types
+import train.infrastructure.types as train_types
 from agents import BaseAgent
-from train.core.value_norm import ValueNorm
+from train.algorithms.value_norm import ValueNorm
 
 from typing import Any, Tuple, Optional
 from functools import partial

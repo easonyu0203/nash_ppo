@@ -1,18 +1,18 @@
 """
-Training script for simultaneous update self-play (Refactored)
+Training script for simultaneous update self-play
 
 Usage:
-    JAX_PLATFORMS=cpu uv run train/nash_pg_refactored.py \
+    JAX_PLATFORMS=cpu uv run train/nash_pg.py \
                         algorithm.num_inner_update=1000 \
                         algorithm.num_outer_update=25 \
                         algorithm.mag_coef=0.2 \
                         logging.save_interval=1000 \
                         run_name=robot_warehouse/ippo/default_run
 
-    CUDA_VISIBLE_DEVICES=0 uv run train/nash_pg_refactored.py \
+    CUDA_VISIBLE_DEVICES=0 uv run train/nash_pg.py \
                             algorithm.num_inner_update=200 \
                             algorithm.num_outer_update=100 \
-                            logging.save_interval=2000 \
+                            logging.save_interval=2000
 
 Assumption:
 * Action space is Discrete, MultiDiscrete, or Box (continuous)
@@ -36,9 +36,7 @@ import hydra
 from omegaconf import DictConfig
 
 from envs import create_env
-from train.setup import create_learner_state, create_rollout_buffer
-from train.training_loop import run_training_loop
-from train.loggers import create_logger
+from train.infrastructure import create_learner_state, create_rollout_buffer, run_training_loop, create_logger
 
 
 def validate_config(config: DictConfig) -> None:
