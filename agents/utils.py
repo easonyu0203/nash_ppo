@@ -16,11 +16,13 @@ def layer_init(module: nnx.Module, key: chex.PRNGKey, std: float = np.sqrt(2), b
         layer.kernel.value = nnx.initializers.orthogonal(scale=std)(
             key1,
             layer.kernel.value.shape,
-            layer.kernel.value.dtype    
+            layer.kernel.value.dtype
         )
 
-        layer.bias.value = nnx.initializers.constant(bias_value)(
-            key2,
-            layer.bias.value.shape,
-            layer.bias.value.dtype
-        )
+        # Only initialize bias if it exists
+        if layer.bias is not None:
+            layer.bias.value = nnx.initializers.constant(bias_value)(
+                key2,
+                layer.bias.value.shape,
+                layer.bias.value.dtype
+            )

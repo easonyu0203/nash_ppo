@@ -1,6 +1,9 @@
-from agents.base_agent import BaseAgent
+"""Public API for agents - only concrete agents used in training."""
+
+from agents.base import BaseAgent
 from agents.mlp_agent import MLPAgent
 from agents.image_agent import ImageAgent
+from agents.lstm_agent import LSTMAgent
 
 import chex
 from omegaconf import DictConfig, OmegaConf
@@ -11,7 +14,7 @@ from typing import Type
 _AGENT_REGISTRY = {
     "mlp": MLPAgent,
     "image": ImageAgent,
-    # Add more agents here as needed
+    "lstm": LSTMAgent,
 }
 
 
@@ -82,6 +85,9 @@ def create_agent(agent_config: DictConfig, key: chex.PRNGKey) -> BaseAgent:
 
 __all__ = [
     'BaseAgent',
+    'MLPAgent',
+    'ImageAgent',
+    'LSTMAgent',
     'create_agent',
     'get_agent_class_from_name',
     'get_agent_name_from_class',

@@ -1,21 +1,25 @@
-"""Mixin for automatic agent configuration tracking."""
+"""Mixin for automatic agent configuration tracking and checkpointing."""
 
 from typing import Dict, Any
 import inspect
 
 
-class ConfigurableAgent:
-    """Mixin that automatically tracks constructor arguments for checkpointing.
+class CheckpointableMixin:
+    """Mixin that provides configuration tracking and checkpointing capabilities.
 
-    This mixin intercepts the __init__ call to store all constructor arguments,
-    enabling automatic serialization/deserialization of agent configurations.
+    This mixin automatically tracks constructor arguments to enable automatic
+    serialization/deserialization of agent configurations for checkpointing.
 
     Usage:
-        class MyAgent(BaseAgent, ConfigurableAgent):
+        class MyAgent(nnx.Module, CheckpointableMixin):
             def __init__(self, key, arg1, arg2, kwarg1=default):
-                # ConfigurableAgent will automatically store these args
-                super().__init__(key)
+                # Call parent __init__ explicitly
+                super().__init__()
+                # CheckpointableMixin will automatically store these args
                 ...
+
+    Note: This is a mixin class and should be used with multiple inheritance.
+          It should typically appear after the primary base class in the MRO.
     """
 
     _agent_config: Dict[str, Any]
@@ -44,8 +48,15 @@ class ConfigurableAgent:
 
             # Store config before calling original __init__
             # This ensures config is available even if __init__ fails
-            object.__setattr__(self, '_agent_config', config)
-            object.__setattr__(self, '_agent_class_name', cls.get_agent_class_name())
+            # Only store config at the most derived class (self.__class__)
+            # to avoid issues with intermediate base classes
+            if not hasattr(self, '_agent_config'):
+                object.__setattr__(self, '_agent_config', config)
+                try:
+                    object.__setattr__(self, '_agent_class_name', self.__class__.get_agent_class_name())
+                except ValueError:
+                    # If class is not registered (e.g., intermediate base class), use class name
+                    object.__setattr__(self, '_agent_class_name', self.__class__.__name__)
 
             # Call original __init__
             original_init(self, key, *args, **kwargs)
