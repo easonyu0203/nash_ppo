@@ -242,6 +242,23 @@ class StatelessAgent(BaseAgent, abc.ABC):
         """
         ...
 
+    @abc.abstractmethod
+    def get_distribution_and_value(
+        self, observations: env_types.Observation
+    ) -> Tuple[distrax.Distribution, chex.Array]:
+        """Get action distribution and value simultaneously.
+
+        This is the main method used during PPO training to evaluate trajectories.
+        More efficient than calling get_action_distribution and get_value separately.
+
+        Args:
+            observations: Observation tensor of shape (batch_size, *observation_shape)
+
+        Returns:
+            Tuple of (distribution, values) where values has shape (batch_size,)
+        """
+        ...
+
 
 class StatefulAgent(BaseAgent, abc.ABC):
     """Abstract base class for stateful RL agents (LSTM, GRU).
@@ -252,6 +269,7 @@ class StatefulAgent(BaseAgent, abc.ABC):
 
     Subclasses must implement:
     - initialize_carry: Initialize hidden states
+    - get_carry_spec: Get shape/dtype specification for preallocation
     - get_value: Value estimation with hidden state
     - get_action: Action sampling with hidden state
     - get_action_and_value: Combined computation with hidden states
@@ -270,6 +288,25 @@ class StatefulAgent(BaseAgent, abc.ABC):
         """
         ...
 
+    def get_carry_spec(self, batch_size: int) -> Any:
+        """Get shape/dtype specification of carries for preallocation.
+
+        This returns a pytree of jax.ShapeDtypeStruct that describes the
+        structure of carries without actually allocating them. Useful for
+        buffer preallocation.
+
+        Args:
+            batch_size: Number of parallel environments/sequences
+
+        Returns:
+            Pytree of ShapeDtypeStruct matching initialize_carry structure
+
+        Note:
+            Default implementation uses eval_shape on initialize_carry.
+            Subclasses can override for more efficient implementations.
+        """
+        return jax.eval_shape(lambda: self.initialize_carry(batch_size))
+
     @abc.abstractmethod
     def get_value(
         self, observations: env_types.Observation, carry: Any
@@ -278,10 +315,11 @@ class StatefulAgent(BaseAgent, abc.ABC):
 
         Args:
             observations: Observation tensor of shape (batch_size, *observation_shape)
-            carry: Hidden state from previous timestep
+            carry: Hidden state from previous timestep with shape (batch_size, *carry_shape)
+                  The carry is batched - one hidden state per sample in the batch
 
         Returns:
-            Tuple of (values, new_carry)
+            Tuple of (values, new_carry) where new_carry has shape (batch_size, *carry_shape)
         """
         ...
 
@@ -293,11 +331,12 @@ class StatefulAgent(BaseAgent, abc.ABC):
 
         Args:
             observations: Observation tensor of shape (batch_size, *observation_shape)
-            carry: Hidden state from previous timestep
+            carry: Hidden state from previous timestep with shape (batch_size, *carry_shape)
+                  The carry is batched - one hidden state per sample in the batch
             key: JAX random key for sampling
 
         Returns:
-            Tuple of (actions, new_carry)
+            Tuple of (actions, new_carry) where new_carry has shape (batch_size, *carry_shape)
         """
         ...
 
@@ -312,11 +351,12 @@ class StatefulAgent(BaseAgent, abc.ABC):
 
         Args:
             observations: Observation tensor of shape (batch_size, *observation_shape)
-            carry: Hidden state from previous timestep
+            carry: Hidden state from previous timestep with shape (batch_size, *carry_shape)
+                  The carry is batched - one hidden state per sample in the batch
             key: JAX random key for sampling
 
         Returns:
-            Tuple of (actions, log_probs, values, new_carry)
+            Tuple of (actions, log_probs, values, new_carry) where new_carry has shape (batch_size, *carry_shape)
         """
         ...
 
@@ -328,9 +368,32 @@ class StatefulAgent(BaseAgent, abc.ABC):
 
         Args:
             observations: Observation tensor of shape (batch_size, *observation_shape)
-            carry: Hidden state from previous timestep
+            carry: Hidden state from previous timestep with shape (batch_size, *carry_shape)
+                  The carry is batched - one hidden state per sample in the batch
 
         Returns:
-            Tuple of (distribution, new_carry)
+            Tuple of (distribution, new_carry) where new_carry has shape (batch_size, *carry_shape)
+        """
+        ...
+
+    @abc.abstractmethod
+    def get_distribution_and_value(
+        self, observations: env_types.Observation, carry: Any
+    ) -> Tuple[distrax.Distribution, chex.Array, Any]:
+        """Get action distribution and value with hidden state.
+
+        This is the main method used during PPO training to evaluate trajectories.
+        More efficient than calling get_action_distribution and get_value separately,
+        and ensures both policy and critic carries are properly updated.
+
+        Args:
+            observations: Observation tensor of shape (batch_size, *observation_shape)
+            carry: Hidden state from previous timestep with shape (batch_size, *carry_shape)
+                  The carry is batched - one hidden state per sample in the batch
+
+        Returns:
+            Tuple of (distribution, values, new_carry) where:
+            - values has shape (batch_size,)
+            - new_carry has shape (batch_size, *carry_shape)
         """
         ...

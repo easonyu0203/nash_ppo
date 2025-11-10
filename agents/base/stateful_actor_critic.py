@@ -182,3 +182,32 @@ class StatefulActorCriticAgent(StatefulAgent):
 
         new_carry = (new_policy_carry, new_critic_carry)
         return actions, log_probs, values, new_carry
+
+    def get_distribution_and_value(
+        self, observations: env_types.Observation, carry: Any
+    ) -> Tuple[distrax.Distribution, chex.Array, Any]:
+        """Get action distribution and value with hidden states.
+
+        This is the main method used during PPO training to evaluate trajectories.
+        Ensures both policy and critic carries are properly updated.
+
+        Args:
+            observations: Observation tensor
+            carry: Full carry tuple (policy_carry, critic_carry)
+
+        Returns:
+            Tuple of (distribution, values, new_carry)
+                where new_carry is (new_policy_carry, new_critic_carry)
+        """
+        policy_carry, critic_carry = carry
+
+        # Get action distribution
+        policy_features, new_policy_carry = self.policy_extractor(observations, policy_carry)
+        dist = self.policy_head(policy_features)
+
+        # Get value estimate
+        critic_features, new_critic_carry = self.critic_extractor(observations, critic_carry)
+        values = self.value_head(critic_features).squeeze(-1)
+
+        new_carry = (new_policy_carry, new_critic_carry)
+        return dist, values, new_carry

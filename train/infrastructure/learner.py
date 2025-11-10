@@ -6,8 +6,7 @@ training components like learner state, buffers, metrics, etc.
 """
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional, Tuple, TYPE_CHECKING
+from typing import Optional, Tuple, Any, TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -18,7 +17,7 @@ from omegaconf import DictConfig
 from gymnasium.spaces import Dict as DictSpace, Discrete, MultiDiscrete, Box
 
 import envs.mytypes as env_types
-from agents import create_agent, BaseAgent
+from agents import create_agent, BaseAgent, StatefulAgent
 from train.data import RolloutBuffer
 
 if TYPE_CHECKING:
@@ -36,6 +35,8 @@ class LearnerState:
     rollout_metrics: nnx.MultiMetric
     mag_agent: Optional[BaseAgent]  # use for regularization
     value_normalizer: Optional['ValueNorm']  # use for value normalization
+    carries: Optional[Any] = None  # hidden states for recurrent agents (stateful only)
+                                    # Shape: pytree with (num_envs * num_agents, *carry_shape)
 
 
 def infer_buffer_shapes(env: env_types.BaseEnv) -> Tuple:
@@ -70,28 +71,41 @@ def infer_buffer_shapes(env: env_types.BaseEnv) -> Tuple:
 def create_rollout_buffer(
     env: env_types.BaseEnv,
     num_envs: int,
-    num_steps: int
+    num_steps: int,
+    agent: Optional[BaseAgent] = None
 ) -> RolloutBuffer:
     """
     Create a rollout buffer with appropriate shapes for the environment.
+
+    If agent is a StatefulAgent, enables carry storage for recurrent hidden states.
 
     Args:
         env: Environment instance
         num_envs: Number of parallel environments
         num_steps: Number of steps per rollout
+        agent: Optional agent instance (required for stateful agents)
 
     Returns:
         Initialized RolloutBuffer
     """
+
     obs_shape, action_shape = infer_buffer_shapes(env)
 
-    return RolloutBuffer(
+    buffer = RolloutBuffer(
         num_envs=num_envs,
         num_steps=num_steps,
         num_agents=env.num_agents,
         obs_shape=obs_shape,
         action_shape=action_shape
     )
+
+    # Enable carry storage for stateful agents
+    if agent is not None and isinstance(agent, StatefulAgent):
+        batch_size = num_envs * env.num_agents
+        carry_spec = agent.get_carry_spec(batch_size)
+        buffer.enable_carry_storage(carry_spec)
+
+    return buffer
 
 
 def create_training_metrics() -> nnx.MultiMetric:
@@ -110,6 +124,7 @@ def create_training_metrics() -> nnx.MultiMetric:
         mag_kl=nnx.metrics.Average("mag_kl"),
         clip_frac=nnx.metrics.Average("clip_frac"),
         explained_var=nnx.metrics.Average("explained_var"),
+        grad_norm=nnx.metrics.Average("grad_norm"),
     )
 
 
@@ -128,6 +143,7 @@ def create_rollout_metrics() -> nnx.MultiMetric:
 
 def create_learner_state(
     config: DictConfig,
+    env: env_types.BaseEnv,
     init_timestep: env_types.TimeStep,
     key: chex.PRNGKey
 ) -> LearnerState:
@@ -136,6 +152,7 @@ def create_learner_state(
 
     Args:
         config: Training configuration
+        env: Environment instance (for extracting num_agents)
         init_timestep: Initial environment timestep
         key: Random key for initialization
 
@@ -146,10 +163,13 @@ def create_learner_state(
     key, agent_key = jax.random.split(key)
     agent = create_agent(config.agent, key=agent_key)
 
-    # Create optimizer
+    # Create optimizer with gradient clipping
     optimizer = nnx.Optimizer(
         agent,
-        optax.adamw(config.algorithm.lr, eps=1e-5),
+        optax.chain(
+            optax.clip_by_global_norm(config.algorithm.max_grad_norm),
+            optax.adamw(config.algorithm.lr, eps=1e-5)
+        ),
         wrt=nnx.Param
     )
 
@@ -163,6 +183,12 @@ def create_learner_state(
         from train.algorithms import ValueNorm
         value_normalizer = ValueNorm()
 
+    # Initialize carries for stateful agents
+    carries = None
+    if isinstance(agent, StatefulAgent):
+        batch_size = config.algorithm.num_envs * env.num_agents
+        carries = agent.initialize_carry(batch_size)
+
     # Create learner state
     key, learner_key = jax.random.split(key)
     return LearnerState(
@@ -174,6 +200,7 @@ def create_learner_state(
         rollout_metrics=rollout_metrics,
         mag_agent=nnx.clone(agent),  # init as the same
         value_normalizer=value_normalizer,
+        carries=carries,
     )
 
 

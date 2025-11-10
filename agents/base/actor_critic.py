@@ -152,3 +152,28 @@ class ActorCriticAgent(StatelessAgent):
         values = self.get_value(observations)
 
         return actions, log_probs, values
+
+    @jax.jit
+    def get_distribution_and_value(
+        self, observations: env_types.Observation
+    ) -> Tuple[distrax.Distribution, chex.Array]:
+        """Get action distribution and value simultaneously.
+
+        This is the main method used during PPO training to evaluate trajectories.
+        More efficient than calling get_action_distribution and get_value separately.
+
+        Args:
+            observations: Observation tensor
+
+        Returns:
+            Tuple of (distribution, values)
+        """
+        # Get action distribution
+        policy_features = self.policy_extractor(observations)
+        dist = self.policy_head(policy_features)
+
+        # Get value estimate
+        critic_features = self.critic_extractor(observations)
+        values = self.value_head(critic_features).squeeze(-1)
+
+        return dist, values

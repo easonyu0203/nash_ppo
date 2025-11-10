@@ -1,6 +1,6 @@
 """Public API for agents - only concrete agents used in training."""
 
-from agents.base import BaseAgent
+from agents.base import BaseAgent, StatefulAgent, StatelessAgent
 from agents.mlp_agent import MLPAgent
 from agents.image_agent import ImageAgent
 from agents.lstm_agent import LSTMAgent
@@ -86,6 +86,8 @@ def create_agent(agent_config: DictConfig, key: chex.PRNGKey) -> BaseAgent:
 __all__ = [
     'BaseAgent',
     'MLPAgent',
+    'StatefulAgent',
+    'StatelessAgent',
     'ImageAgent',
     'LSTMAgent',
     'create_agent',

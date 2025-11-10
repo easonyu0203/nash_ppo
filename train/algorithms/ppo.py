@@ -1,28 +1,36 @@
-import train.infrastructure.types as train_types
-from agents import BaseAgent
-from train.algorithms.value_norm import ValueNorm
+"""PPO algorithm implementation with support for both stateless and stateful agents."""
 
-from typing import Any, Tuple, Optional
+from typing import Tuple, Optional, Any
 from functools import partial
 
 import jax
-import chex
 import jax.numpy as jnp
+import chex
 from flax import nnx
+import optax
+
+import train.infrastructure.types as train_types
+from agents import BaseAgent, StatefulAgent
+from train.algorithms.value_norm import ValueNorm
+from train.algorithms.ppo_stateless import calculate_loss_stateless
+from train.algorithms.ppo_stateful import calculate_loss_stateful
+
 
 @chex.dataclass
 class UpdateState:
+    """State carrier for PPO updates."""
     agent: BaseAgent
     optimizer: nnx.Optimizer
     metrics: nnx.MultiMetric
     key: chex.PRNGKey
+
 
 @partial(nnx.jit, static_argnames=('num_minibatches', 'num_ppo_epoch', 'normalize_logprob'))
 def update_agent(
     agent: BaseAgent,
     mag_agent: BaseAgent,
     optimizer: nnx.Optimizer,
-    dataset: train_types.Dataset,  # shape (batch_size, ...)
+    dataset: train_types.Dataset,
     metrics: nnx.MultiMetric,
     key: chex.PRNGKey,
     ent_coef: float,
@@ -33,16 +41,18 @@ def update_agent(
     normalize_logprob: bool = True,
     value_normalizer: Optional[ValueNorm] = None,
 ) -> Tuple[BaseAgent, nnx.Optimizer, nnx.MultiMetric]:
-    """
-    Updates agent parameters using PPO with optional magnetic regularization.
+    """Update agent parameters using PPO.
 
-    All agents share the same model and all samples are used for training.
+    Supports both stateless agents (flat batches) and stateful agents (BPTT sequences).
+    Automatically dispatches to appropriate loss function based on agent type.
 
     Args:
         agent: Agent to update
-        mag_agent: Optional magnetic agent for regularization
+        mag_agent: Magnetic agent for regularization (can be None)
         optimizer: Optimizer state
-        dataset: Training dataset with advantages and targets, shape (batch_size,)
+        dataset: Training dataset
+                 - Stateless: shape (batch_size, ...)
+                 - Stateful: shape (batch_size, bptt_length, ...)
         metrics: Metrics collector
         key: Random key for shuffling
         ent_coef: Entropy regularization coefficient
@@ -50,150 +60,89 @@ def update_agent(
         clip_eps: PPO clipping parameter
         num_minibatches: Number of minibatches per epoch
         num_ppo_epoch: Number of training epochs
-        normalize_logprob: If True, normalize log_prob and KL divergence by number of action dimensions
-                          (important for multi-discrete actions to prevent instability)
-        value_normalizer: Optional value normalizer for normalizing value targets
+        normalize_logprob: If True, normalize log_prob by action dimensions
+        value_normalizer: Optional value normalizer
+
     Returns:
         Tuple of (updated_agent, updated_optimizer, updated_metrics)
     """
     batch_size = dataset.advantage.shape[0]
 
-    assert batch_size % num_minibatches == 0, f"batch_size ({batch_size}) must be divisible by num_minibatches ({num_minibatches})"
+    assert batch_size % num_minibatches == 0, \
+        f"batch_size ({batch_size}) must be divisible by num_minibatches ({num_minibatches})"
 
     # Update value normalizer statistics and normalize targets BEFORE training loop
     if value_normalizer is not None:
-        # Update running statistics with target returns
-        value_normalizer.update(dataset.target_value)
-        # Normalize target returns for all batches
-        dataset = dataset.replace(target_value=value_normalizer.normalize(dataset.target_value))
+        # Flatten target values for consistent shape with value normalizer
+        # For stateless: already (batch_size,)
+        # For stateful: (num_sequences, bptt_length) -> (batch_size,)
+        target_value_flat = dataset.target_value.reshape(-1)
+        value_normalizer.update(target_value_flat)
+        normalized_flat = value_normalizer.normalize(target_value_flat)
+        # Reshape back to original shape
+        dataset = dataset.replace(target_value=normalized_flat.reshape(dataset.target_value.shape))
 
+    # Choose loss function based on agent type
+    is_stateful = isinstance(agent, StatefulAgent)
 
-    def calculate_n_log_loss(
-        agent: BaseAgent, dataset: train_types.Dataset, metrics: nnx.MultiMetric
-    ) -> chex.Numeric:
-        """calculate loss and log to metrics"""
-        dists = agent.get_action_distribution(dataset.observation)
+    def calculate_loss(agent: BaseAgent, dataset: train_types.Dataset) -> Tuple[chex.Numeric, dict[str, chex.Numeric]]:
+        """Wrapper that dispatches to appropriate loss function.
 
-        # Extract validity mask and compute number of valid samples
-        valid_mask = dataset.valid_mask.astype(jnp.float32)  # Convert bool to float for masking
-        num_valid = jnp.maximum(jnp.sum(valid_mask), 1.0)  # Avoid division by zero
-
-        """actor loss"""
-        log_prob = dists.log_prob(dataset.action)
-
-        # Compute normalization factor based on action dimensions
-        n_action_dims = jnp.where(
-            dataset.action.ndim == 1,
-            1,  # discrete action
-            dataset.action.shape[-1]  # multi-discrete action or continuous action
-        )
-        # If normalize_logprob=False, use 1.0; otherwise use n_action_dims
-        norm_factor = jnp.where(normalize_logprob, jnp.float32(n_action_dims), jnp.float32(1.0))
-
-        # Normalize log_prob by action dimensions (always divide, factor is 1.0 if disabled)
-        log_prob_normalized = log_prob / norm_factor
-        old_log_prob_normalized = dataset.log_prob / norm_factor
-
-        # normalize advantage (only over valid samples)
-        masked_advantage = dataset.advantage * valid_mask
-        advantage_mean = jnp.sum(masked_advantage) / num_valid
-        advantage_var = jnp.sum(valid_mask * jnp.square(dataset.advantage - advantage_mean)) / num_valid
-        advantage_std = jnp.sqrt(advantage_var)
-        dataset.advantage = (dataset.advantage - advantage_mean) / (advantage_std + 1e-8)
-
-        # ppo loss (use normalized log_prob, masked mean)
-        log_ratio = log_prob_normalized - old_log_prob_normalized
-        ratio = jnp.exp(log_ratio)
-        ppo_loss1 = ratio * dataset.advantage
-        ppo_loss2 = jnp.clip(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * dataset.advantage
-        ppo_loss_per_sample = -jnp.minimum(ppo_loss1, ppo_loss2)
-        ppo_loss = jnp.sum(ppo_loss_per_sample * valid_mask) / num_valid
-
-        # entropy loss (masked mean)
-        entropy_per_sample = dists.entropy() / norm_factor
-        entropy_loss = -jnp.sum(entropy_per_sample * valid_mask) / num_valid
-
-        # magnet loss (masked mean)
-        mag_loss, mag_kl = 0, 0
-        if mag_agent is not None:
-            mag_dists = mag_agent.get_action_distribution(dataset.observation)
-            kl_div = dists.kl_divergence(mag_dists)
-            # Normalize KL divergence by action dimensions
-            kl_div_normalized = kl_div / norm_factor
-            mag_kl = jnp.sum(kl_div_normalized * valid_mask) / num_valid
-            mag_loss = mag_kl
-
-        # total actor loss
-        actor_loss = ppo_loss + ent_coef * entropy_loss + mag_coef * mag_loss
-
-        """critic loss (masked mean)"""
-        values = agent.get_value(dataset.observation)
-
-        # Compute value loss (values are already in normalized space if using value_normalizer)
-        values_clipped = dataset.value + jnp.clip(values - dataset.value, -clip_eps, clip_eps)
-        critic_loss1 = jnp.square(values - dataset.target_value)
-        critic_loss2 = jnp.square(values_clipped - dataset.target_value)
-        critic_loss_per_sample = 0.5 * jnp.maximum(critic_loss1, critic_loss2)
-        critic_loss = jnp.sum(critic_loss_per_sample * valid_mask) / num_valid
-
-        """logging (all metrics computed only over valid samples)"""
-        total_loss = actor_loss + critic_loss
-        approx_kl = jnp.sum(((ratio - 1) - log_ratio) * valid_mask) / num_valid
-        clip_frac = jnp.sum((jnp.abs(ratio - 1.0) > clip_eps).astype('float32') * valid_mask) / num_valid
-
-        # explained variance calculation (only over valid samples)
-        masked_target = dataset.target_value * valid_mask
-        target_mean = jnp.sum(masked_target) / num_valid
-        target_var = jnp.sum(valid_mask * jnp.square(dataset.target_value - target_mean)) / num_valid
-        residual_var = jnp.sum(valid_mask * jnp.square(dataset.target_value - values)) / num_valid
-        explained_var = jnp.maximum(1 - residual_var / (target_var + 1e-8), jnp.float32(0))
-
-        metrics.update(
-            actor_loss = actor_loss,
-            ppo_loss = ppo_loss,
-            critic_loss=critic_loss,
-            entropy = -entropy_loss,
-            mag_kl = mag_kl,
-            approx_kl = approx_kl,
-            clip_frac = clip_frac,
-            explained_var = explained_var
-        )
-
-        return total_loss
-
+        Returns:
+            Tuple of (total_loss, aux_losses) where aux_losses contains metrics
+        """
+        if is_stateful:
+            return calculate_loss_stateful(
+                agent, mag_agent, dataset,
+                ent_coef, mag_coef, clip_eps, normalize_logprob
+            )
+        else:
+            return calculate_loss_stateless(
+                agent, mag_agent, dataset,
+                ent_coef, mag_coef, clip_eps, normalize_logprob
+            )
 
     def update_batch(carry: UpdateState, batch: train_types.Dataset):
-        """Update the agent for a single batch"""
-        # compute the gradient
-        grad = nnx.grad(calculate_n_log_loss)(carry.agent, batch, carry.metrics)
+        """Update the agent for a single batch."""
+        # Compute gradient with auxiliary outputs
+        grad, aux_losses = nnx.grad(calculate_loss, has_aux=True)(carry.agent, batch)
 
-        # update agent, optimizer state (inplace update)
+        # Compute global gradient norm before clipping
+        global_norm = optax.global_norm(grad)
+
+        # Update metrics with auxiliary losses and gradient norm
+        carry.metrics.update(
+            grad_norm=global_norm,
+            **aux_losses
+        )
+
+        # Update agent and optimizer state (in-place)
         carry.optimizer.update(carry.agent, grad)
 
-        return carry, 0
-
+        return carry, None
 
     def update_epoch(carry: UpdateState, _: Any):
-        """Update the agent for a single epoch"""
-        carry.key, shuffle_key1 = jax.random.split(carry.key, 2)
+        """Update the agent for a single epoch."""
+        carry.key, shuffle_key = jax.random.split(carry.key, 2)
 
         # Shuffle data and create minibatches
-        permutation1 = jax.random.permutation(shuffle_key1, batch_size)
-        def process_batch1(x: chex.Array):
-            # shuffle
-            x = jnp.take(x, permutation1, axis=0)
-            # create mini-batches
+        permutation = jax.random.permutation(shuffle_key, batch_size)
+
+        def shuffle_and_minibatch(x: chex.Array):
+            # Shuffle
+            x = jnp.take(x, permutation, axis=0)
+            # Create minibatches
             x = jnp.reshape(x, (num_minibatches, -1, *x.shape[1:]))
             return x
-        batched_dataset = jax.tree.map(process_batch1, dataset) # (num_minibatches, batch_size, ...)
 
-        # update batches
+        batched_dataset = jax.tree.map(shuffle_and_minibatch, dataset)
+
+        # Update batches
         carry, _ = nnx.scan(update_batch)(carry, batched_dataset)
 
-        return carry, 0
+        return carry, None
 
-
-    # create update state for carrying
+    # Create update state
     carry = UpdateState(
         agent=agent,
         optimizer=optimizer,
@@ -201,9 +150,7 @@ def update_agent(
         key=key
     )
 
-    # perform ppo update for given epoch
+    # Perform PPO updates for specified number of epochs
     carry, _ = nnx.scan(update_epoch, length=num_ppo_epoch)(carry, None)
-    carry: UpdateState = carry # for type hint
-    
 
     return carry.agent, carry.optimizer, carry.metrics

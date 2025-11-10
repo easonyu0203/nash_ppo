@@ -6,7 +6,6 @@ checkpoint saving, and metric logging.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import jax
 from flax import nnx
@@ -17,9 +16,6 @@ import envs.mytypes as env_types
 from train.data import collect_trajectories, process_transitions, RolloutBuffer
 from train.infrastructure.loggers import BaseLogger
 from train.infrastructure.learner import LearnerState, process_rollout_metrics, create_value_norm_metrics
-
-if TYPE_CHECKING:
-    from train.algorithms import update_agent
 
 
 def training_step(
@@ -44,25 +40,32 @@ def training_step(
     learner_state.key, collect_key, update_key = jax.random.split(learner_state.key, 3)
 
     # Collect trajectories (num_envs, num_steps, num_agents)
-    learner_state.last_timestep, transitions, next_value, next_terminated = collect_trajectories(
+    # Pass carries for stateful agents to maintain temporal continuity
+    learner_state.last_timestep, transitions, next_value, next_terminated, learner_state.carries = collect_trajectories(
         env=env,
         agent=learner_state.agent,
         last_timestep=learner_state.last_timestep,
         key=collect_key,
         num_steps=config.algorithm.num_steps,
-        buffer=buffer
+        buffer=buffer,
+        carries=learner_state.carries
     )
 
     # Process transitions and compute advantages
+    # Pass bptt_length for stateful agents
+    from agents import StatefulAgent
+    bptt_length = config.algorithm.bptt_length if isinstance(learner_state.agent, StatefulAgent) else None
+
     learner_state.rollout_metrics, dataset = process_transitions(
         transitions, learner_state.rollout_metrics,
         next_value, next_terminated,
         gamma=config.algorithm.gamma,
         gae_gamma=config.algorithm.gae_gamma,
-        value_normalizer=learner_state.value_normalizer
+        value_normalizer=learner_state.value_normalizer,
+        bptt_length=bptt_length
     )
 
-    # Perform PPO update
+    # Perform PPO update (import here to avoid circular dependency)
     from train.algorithms import update_agent
     learner_state.agent, learner_state.optimizer, learner_state.train_metrics = update_agent(
         agent=learner_state.agent,

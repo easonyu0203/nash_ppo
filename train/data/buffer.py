@@ -2,6 +2,7 @@
 Rollout buffer for CPU-side trajectory storage.
 """
 
+from typing import Optional, Any
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -47,11 +48,34 @@ class RolloutBuffer:
         else:
             self.observations = np.zeros((num_envs, num_steps, num_agents, *obs_shape), dtype=np.float32)
 
+        # Carry storage (None for stateless agents)
+        self.initial_carries: Optional[Any] = None
+
+    def enable_carry_storage(self, carry_spec):
+        """Enable storage of carries for recurrent agents.
+
+        Must be called before collection starts if using stateful agents.
+
+        Args:
+            carry_spec: Pytree of ShapeDtypeStruct from agent.get_carry_spec(batch_size)
+                       where batch_size = num_envs * num_agents
+                       Shape: (batch_size, *carry_dims)
+        """
+        # Allocate buffer for carries: (num_envs, num_steps, num_agents, *carry_shape)
+        # carry_spec has shape (batch_size, *carry_dims) where batch_size = num_envs * num_agents
+        def allocate_carry_array(spec: jax.ShapeDtypeStruct):
+            # spec.shape is (batch_size, *carry_dims) where batch_size = num_envs * num_agents
+            # We want: (num_envs, num_steps, num_agents, *carry_dims)
+            carry_dims = spec.shape[1:]  # Extract everything after batch dim
+            return np.zeros((self.num_envs, self.num_steps, self.num_agents, *carry_dims), dtype=spec.dtype)
+
+        self.initial_carries = jax.tree.map(allocate_carry_array, carry_spec)
+
     def reset(self):
         """Reset buffer for new collection"""
         self.step = 0
 
-    def add(self, done, action, value, reward, log_prob, observation):
+    def add(self, done, action, value, reward, log_prob, observation, initial_carry=None):
         """Add a timestep of data to buffer
 
         Args:
@@ -61,6 +85,8 @@ class RolloutBuffer:
             reward: Rewards received, shape (num_envs, num_agents)
             log_prob: Log probabilities, shape (num_envs, num_agents)
             observation: Observations, shape (num_envs, num_agents, ...) or dict of such
+            initial_carry: Optional hidden state at start of timestep
+                          Shape: (num_envs, num_agents, *carry_shape)
         """
         self.dones[:, self.step, :] = done
         self.actions[:, self.step] = action
@@ -75,6 +101,24 @@ class RolloutBuffer:
         else:
             self.observations[:, self.step] = observation
 
+        # Store carries if provided (already in correct shape: (num_envs, num_agents, *carry_shape))
+        if initial_carry is not None:
+            assert self.initial_carries is not None, (
+                "Received initial_carry but buffer carry storage not enabled. "
+                "Call enable_carry_storage() before collecting trajectories with stateful agents."
+            )
+
+            def store_carry(buffer_array, carry_array_np):
+                # carry_array_np shape: (num_envs, num_agents, *carry_dims) - NumPy array
+                buffer_array[:, self.step, :] = carry_array_np
+                return buffer_array
+
+            self.initial_carries = jax.tree.map(
+                store_carry,
+                self.initial_carries,
+                initial_carry
+            )
+
         self.step += 1
 
     def to_jax(self) -> train_types.Transition:
@@ -86,4 +130,5 @@ class RolloutBuffer:
             reward=jnp.asarray(self.rewards),
             log_prob=jnp.asarray(self.log_probs),
             observation=jax.tree.map(jnp.asarray, self.observations),
+            initial_carry=jax.tree.map(jnp.asarray, self.initial_carries) if self.initial_carries is not None else None,
         )

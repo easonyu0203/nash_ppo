@@ -32,6 +32,7 @@ def rearrange_transitions(transitions: train_types.Transition) -> train_types.Tr
         reward=swap_axes(transitions.reward),
         log_prob=swap_axes(transitions.log_prob),
         observation=jax.tree.map(swap_axes, transitions.observation),
+        initial_carry=jax.tree.map(swap_axes, transitions.initial_carry) if transitions.initial_carry is not None else None,
     )
 
 
@@ -39,40 +40,97 @@ def create_dataset(
     transitions: train_types.Transition,
     advantages: chex.Array,
     target_values: chex.Array,
-    batch_size: int
+    batch_size: int,
+    bptt_length: Optional[int] = None
 ) -> train_types.Dataset:
     """
-    Create flattened dataset from rearranged transitions.
+    Create dataset from rearranged transitions.
+
+    For stateless agents (bptt_length=None):
+        Flattens to shape (batch_size, ...) where batch_size = num_envs * num_agents * num_steps
+
+    For stateful agents (bptt_length specified):
+        Reshapes to (batch_size, bptt_length, ...) where batch_size = num_envs * num_agents * num_steps // bptt_length
+        Each sample is a sequence of bptt_length timesteps for BPTT training
 
     Args:
         transitions: Rearranged transitions with shape (num_envs, num_agents, num_steps, ...)
         advantages: Shape (num_envs, num_agents, num_steps)
         target_values: Shape (num_envs, num_agents, num_steps)
         batch_size: num_envs * num_agents * num_steps
+        bptt_length: If specified, reshape into BPTT segments of this length
 
     Returns:
-        Dataset with all fields flattened to (batch_size, ...)
+        Dataset with fields shaped appropriately for stateless or stateful training
     """
-    def flatten_to_batch(x: chex.Array) -> chex.Array:
-        """Flatten (num_envs, num_agents, num_steps, ...) -> (batch_size, ...)"""
-        return x.reshape(batch_size, *x.shape[3:])
+    if bptt_length is None:
+        # Stateless: flatten everything to (batch_size, ...)
+        def flatten_to_batch(x: chex.Array) -> chex.Array:
+            """Flatten (num_envs, num_agents, num_steps, ...) -> (batch_size, ...)"""
+            return x.reshape(batch_size, *x.shape[3:])
 
-    # Compute validity mask: True if transition is valid (state was NOT done)
-    # When done=True, the action was taken in a terminal/truncated state and should be ignore
-    valid_mask = ~transitions.done  # Shape: (num_envs, num_agents, num_steps)
+        return train_types.Dataset(
+            action=flatten_to_batch(transitions.action),
+            value=transitions.value.reshape(batch_size),
+            log_prob=transitions.log_prob.reshape(batch_size),
+            observation=jax.tree.map(flatten_to_batch, transitions.observation),
+            advantage=advantages.reshape(batch_size),
+            target_value=target_values.reshape(batch_size),
+            done=transitions.done.reshape(batch_size),
+            initial_carry=None,
+        )
+    else:
+        # Stateful: reshape to BPTT segments (batch_size // bptt_length, bptt_length, ...)
+        num_envs, num_agents, num_steps = transitions.reward.shape
+        num_sequences = batch_size // bptt_length
 
-    return train_types.Dataset(
-        action=flatten_to_batch(transitions.action),
-        value=transitions.value.reshape(batch_size),
-        log_prob=transitions.log_prob.reshape(batch_size),
-        observation=jax.tree.map(flatten_to_batch, transitions.observation),
-        advantage=advantages.reshape(batch_size),
-        target_value=target_values.reshape(batch_size),
-        valid_mask=valid_mask.reshape(batch_size),
-    )
+        def reshape_to_sequences(x: chex.Array) -> chex.Array:
+            """Reshape (num_envs, num_agents, num_steps, ...) -> (num_sequences, bptt_length, ...)"""
+            # First flatten to (num_envs * num_agents, num_steps, ...)
+            flat_shape = (num_envs * num_agents, num_steps, *x.shape[3:])
+            x_flat = x.reshape(flat_shape)
+            # Then reshape to (num_envs * num_agents * num_steps // bptt_length, bptt_length, ...)
+            seq_shape = (num_sequences, bptt_length, *x.shape[3:])
+            return x_flat.reshape(seq_shape)
+
+        def reshape_scalar_to_sequences(x: chex.Array) -> chex.Array:
+            """Reshape scalar arrays (num_envs, num_agents, num_steps) -> (num_sequences, bptt_length)"""
+            # Flatten to (num_envs * num_agents, num_steps)
+            x_flat = x.reshape(num_envs * num_agents, num_steps)
+            # Reshape to (num_sequences, bptt_length)
+            return x_flat.reshape(num_sequences, bptt_length)
+
+        # For carries, we only need the initial carry at the start of each BPTT segment
+        # Shape: (num_envs, num_agents, num_steps, *carry_shape) -> sample every bptt_length
+        initial_carry_sequences = None
+        def extract_segment_starts(carry_array: chex.Array) -> chex.Array:
+            """Extract carries at segment boundaries.
+            Input: (num_envs, num_agents, num_steps, *carry_dims)
+            Output: (num_sequences, *carry_dims)
+            """
+            # Flatten to (num_envs * num_agents, num_steps, *carry_dims)
+            flat_shape = (num_envs * num_agents, num_steps, *carry_array.shape[3:])
+            carry_flat = carry_array.reshape(flat_shape)
+            # Reshape to (num_sequences, bptt_length, *carry_dims)
+            carry_seqs = carry_flat.reshape(num_sequences, bptt_length, *carry_array.shape[3:])
+            # Take only the first timestep of each sequence (index 0)
+            return carry_seqs[:, 0, ...]  # (num_sequences, *carry_dims)
+
+        initial_carry_sequences = jax.tree.map(extract_segment_starts, transitions.initial_carry)
+
+        return train_types.Dataset(
+            action=reshape_to_sequences(transitions.action),
+            value=reshape_scalar_to_sequences(transitions.value),
+            log_prob=reshape_scalar_to_sequences(transitions.log_prob),
+            observation=jax.tree.map(reshape_to_sequences, transitions.observation),
+            advantage=reshape_scalar_to_sequences(advantages),
+            target_value=reshape_scalar_to_sequences(target_values),
+            done=reshape_scalar_to_sequences(transitions.done),
+            initial_carry=initial_carry_sequences,
+        )
 
 
-@nnx.jit
+@nnx.jit(static_argnames=('bptt_length',))
 def process_transitions(
     transitions: train_types.Transition,
     metrics: nnx.MultiMetric,
@@ -81,6 +139,7 @@ def process_transitions(
     gamma: float,
     gae_gamma: float,
     value_normalizer: Optional[ValueNorm] = None,
+    bptt_length: Optional[int] = None,
 ) -> Tuple[nnx.MultiMetric, train_types.Dataset]:
     """
     Process transitions and calculate advantages using GAE.
@@ -94,6 +153,7 @@ def process_transitions(
         gamma: Discount factor
         gae_gamma: GAE lambda parameter
         value_normalizer: Optional value normalizer for denormalizing value predictions
+        bptt_length: If specified, creates sequences for BPTT training (stateful agents)
 
     Returns:
         Tuple of (updated metrics, training dataset)
@@ -107,11 +167,11 @@ def process_transitions(
         transitions, next_value, next_terminated, gamma, gae_gamma, value_normalizer
     )
 
-    # Step 4: Flatten to batch dimension (num_envs * num_agents * num_steps,)
+    # Step 4: Create dataset (flatten for stateless, reshape to sequences for stateful)
     batch_size = num_envs * num_agents * num_steps
 
     dataset = create_dataset(
-        transitions, advantages, target_values, batch_size
+        transitions, advantages, target_values, batch_size, bptt_length
     )
 
     # Log metrics - agent 0 reward only

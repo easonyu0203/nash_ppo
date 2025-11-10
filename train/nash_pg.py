@@ -55,6 +55,13 @@ def validate_config(config: DictConfig) -> None:
     if config.algorithm.num_inner_update % config.logging.log_interval != 0:
         raise ValueError("log_interval must be divisible by num_inner_update")
 
+    # Validate BPTT configuration for recurrent agents
+    if config.algorithm.num_steps % config.algorithm.bptt_length != 0:
+        raise ValueError(
+            f"num_steps ({config.algorithm.num_steps}) must be divisible by "
+            f"bptt_length ({config.algorithm.bptt_length}) for proper BPTT training"
+        )
+
 
 def main(config: DictConfig) -> None:
     """
@@ -79,13 +86,14 @@ def main(config: DictConfig) -> None:
 
         # Setup learner state (agent, optimizer, metrics, etc.)
         key, learner_key = jax.random.split(key)
-        learner_state = create_learner_state(config, init_timestep, learner_key)
+        learner_state = create_learner_state(config, env, init_timestep, learner_key)
 
-        # Create rollout buffer
+        # Create rollout buffer (pass agent for stateful agent support)
         buffer = create_rollout_buffer(
             env=env,
             num_envs=config.algorithm.num_envs,
-            num_steps=config.algorithm.num_steps
+            num_steps=config.algorithm.num_steps,
+            agent=learner_state.agent
         )
 
         # Setup logger

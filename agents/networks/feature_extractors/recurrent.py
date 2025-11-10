@@ -39,10 +39,11 @@ class RecurrentFeatureExtractor(FeatureExtractor):
 
         Args:
             observations: Observation tensor of shape (batch_size, *obs_shape)
-            carry: Hidden state from previous timestep
+            carry: Hidden state from previous timestep with shape (batch_size, *carry_shape)
+                  The carry is batched - one hidden state per sample in the batch
 
         Returns:
-            Tuple of (features, new_carry)
+            Tuple of (features, new_carry) where new_carry has shape (batch_size, *carry_shape)
         """
         ...
 
@@ -113,11 +114,12 @@ class LSTMFeatureExtractor(RecurrentFeatureExtractor):
         Args:
             observations: Observation tensor of shape (batch_size, *obs_shape)
             carry: List of LSTM carries [(h, c), ...], one per layer
+                  Each (h, c) tuple has shapes (batch_size, hidden_dim)
 
         Returns:
             Tuple of (features, new_carries) where:
             - features: shape (batch_size, hidden_dim)
-            - new_carries: list of (h, c) tuples for each layer
+            - new_carries: list of (h, c) tuples, each with shape (batch_size, hidden_dim)
         """
         # Extract latent representation from observations
         x = self.base_extractor(observations)
