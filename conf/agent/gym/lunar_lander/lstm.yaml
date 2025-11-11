@@ -1,5 +1,5 @@
 agent_name: "lstm"
-input_dim: 5  # POMDP: position (x, y), angle, and leg contact (no velocities)
+input_dim: 8
 output_dim: 4
 action_space_type: "discrete"
 mlp_dim: 32
