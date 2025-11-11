@@ -7,7 +7,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-import train.infrastructure.types as train_types
+import train.types as train_types
 
 
 class RolloutBuffer:

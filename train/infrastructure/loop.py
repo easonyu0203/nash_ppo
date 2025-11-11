@@ -16,7 +16,8 @@ import envs.mytypes as env_types
 from train.data import collect_trajectories, process_transitions, RolloutBuffer
 from train.infrastructure.loggers import BaseLogger
 from train.infrastructure.learner import LearnerState, process_rollout_metrics, create_value_norm_metrics
-
+from train.algorithms import update_agent
+from agents import StatefulAgent
 
 def training_step(
     learner_state: LearnerState,
@@ -47,13 +48,13 @@ def training_step(
         last_timestep=learner_state.last_timestep,
         key=collect_key,
         num_steps=config.algorithm.num_steps,
+        num_envs=config.algorithm.num_envs,
+        num_agents=env.num_agents,
         buffer=buffer,
         carries=learner_state.carries
     )
 
     # Process transitions and compute advantages
-    # Pass bptt_length for stateful agents
-    from agents import StatefulAgent
     bptt_length = config.algorithm.bptt_length if isinstance(learner_state.agent, StatefulAgent) else None
 
     learner_state.rollout_metrics, dataset = process_transitions(
@@ -65,8 +66,7 @@ def training_step(
         bptt_length=bptt_length
     )
 
-    # Perform PPO update (import here to avoid circular dependency)
-    from train.algorithms import update_agent
+    # Perform PPO update
     learner_state.agent, learner_state.optimizer, learner_state.train_metrics = update_agent(
         agent=learner_state.agent,
         mag_agent=learner_state.mag_agent,

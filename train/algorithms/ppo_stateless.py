@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import chex
 from flax import nnx
 
-import train.infrastructure.types as train_types
+import train.types as train_types
 from agents import BaseAgent
 from train.algorithms.ppo_utils import get_action_norm_factor
 

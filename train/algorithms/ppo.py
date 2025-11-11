@@ -9,7 +9,7 @@ import chex
 from flax import nnx
 import optax
 
-import train.infrastructure.types as train_types
+import train.types as train_types
 from agents import BaseAgent, StatefulAgent
 from train.algorithms.value_norm import ValueNorm
 from train.algorithms.ppo_stateless import calculate_loss_stateless

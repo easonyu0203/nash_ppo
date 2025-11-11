@@ -99,6 +99,7 @@ class StatefulActorCriticAgent(StatefulAgent):
 
     # ===== Core agent interface (stateful versions) =====
 
+    @jax.jit
     def get_value(
         self, observations: env_types.Observation, carry: Any
     ) -> Tuple[chex.Array, Any]:
@@ -116,6 +117,7 @@ class StatefulActorCriticAgent(StatefulAgent):
         values = self.value_head(features).squeeze(-1)
         return values, (policy_carry, new_critic_carry)
 
+    @jax.jit
     def get_action_distribution(
         self, observations: env_types.Observation, carry: Any
     ) -> Tuple[distrax.Distribution, Any]:
@@ -133,6 +135,7 @@ class StatefulActorCriticAgent(StatefulAgent):
         dist = self.policy_head(features)
         return dist, (new_policy_carry, critic_carry)
 
+    @jax.jit
     def get_action(
         self, observations: env_types.Observation, carry: Any, key: chex.PRNGKey
     ) -> Tuple[env_types.Action, Any]:
@@ -150,6 +153,7 @@ class StatefulActorCriticAgent(StatefulAgent):
         actions = dist.sample(seed=key)
         return actions, new_carry
 
+    @jax.jit
     def get_action_and_value(
         self,
         observations: env_types.Observation,
@@ -183,6 +187,7 @@ class StatefulActorCriticAgent(StatefulAgent):
         new_carry = (new_policy_carry, new_critic_carry)
         return actions, log_probs, values, new_carry
 
+    @jax.jit
     def get_distribution_and_value(
         self, observations: env_types.Observation, carry: Any
     ) -> Tuple[distrax.Distribution, chex.Array, Any]:

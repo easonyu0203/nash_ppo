@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from flax import nnx
 import chex
 
-import train.infrastructure.types as train_types
+import train.types as train_types
 from train.algorithms.value_norm import ValueNorm
 
 
