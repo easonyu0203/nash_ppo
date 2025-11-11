@@ -1,0 +1,4 @@
+env_name: gymnasium
+gym_env_id: Pendulum-v1
+# POMDP: Only observe cos(theta) and sin(theta), hide angular velocity
+observable_dims: [0, 1]

@@ -5,6 +5,7 @@ from envs.wrappers.pettingzoo_wrapper import PettingZooWrapper
 from envs.wrappers.add_agent_id_wrapper import AddAgentIDWrapper
 from envs.wrappers.unity_subprocess_wrapper import UnitySubprocessWrapper
 from envs.wrappers.unity_subprocess_vec_env import UnitySubprocessVecEnv
+from envs.wrappers.partial_observability_wrapper import PartialObservabilityWrapper
 
 __all__ = [
     "AutoResetWrapper",
@@ -13,5 +14,6 @@ __all__ = [
     "PettingZooWrapper",
     "AddAgentIDWrapper",
     "UnitySubprocessWrapper",
-    "UnitySubprocessVecEnv"
+    "UnitySubprocessVecEnv",
+    "PartialObservabilityWrapper"
 ]

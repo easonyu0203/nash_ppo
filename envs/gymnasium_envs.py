@@ -10,10 +10,11 @@ def create_gymnasium_env(env_config: DictConfig, **kwargs):
 
     Args:
         env_config: Config with 'gym_env_id' field specifying the Gymnasium environment ID
+                   Optional 'observable_dims' field to create POMDP (list of dimension indices)
         **kwargs: Additional arguments to pass to gym.make (e.g., render_mode="human")
 
     Returns:
-        GymnasiumWrapper instance
+        GymnasiumWrapper instance (optionally wrapped with PartialObservabilityWrapper)
     """
     env_id = env_config.get("gym_env_id")
     if env_id is None:
@@ -23,7 +24,17 @@ def create_gymnasium_env(env_config: DictConfig, **kwargs):
     gym_env = gym.make(env_id, **kwargs)
 
     # Wrap it for BaseEnv interface
-    return GymnasiumWrapper(gym_env)
+    wrapped_env = GymnasiumWrapper(gym_env)
+
+    # Apply POMDP wrapper if observable_dims is specified
+    if "observable_dims" in env_config:
+        from envs.wrappers.partial_observability_wrapper import PartialObservabilityWrapper
+        wrapped_env = PartialObservabilityWrapper(
+            wrapped_env,
+            observable_dims=list(env_config.observable_dims)
+        )
+
+    return wrapped_env
 
 
 __all__ = ["create_gymnasium_env"]

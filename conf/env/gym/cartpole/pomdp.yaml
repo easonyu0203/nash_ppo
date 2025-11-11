@@ -1,0 +1,4 @@
+env_name: gymnasium
+gym_env_id: CartPole-v1
+# POMDP: Only observe cart position and pole angle, hide velocities
+observable_dims: [0, 2]

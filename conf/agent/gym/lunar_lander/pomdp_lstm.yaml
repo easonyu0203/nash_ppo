@@ -1,0 +1,8 @@
+agent_name: "mlp"
+input_dim: 5  # POMDP: position (x, y), angle, and leg contact (no velocities)
+output_dim: 4
+action_space_type: "discrete"
+mlp_dim: 32
+lstm_dim: 32
+num_mlp_layers: 1
+num_lstm_layers: 1

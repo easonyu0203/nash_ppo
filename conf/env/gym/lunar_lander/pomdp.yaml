@@ -1,0 +1,4 @@
+env_name: gymnasium
+gym_env_id: LunarLander-v3
+# POMDP: Observe position (x, y), angle, and leg contact, hide velocities
+observable_dims: [0, 1, 4, 6, 7]

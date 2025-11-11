@@ -1,0 +1,4 @@
+env_name: gymnasium
+gym_env_id: Acrobot-v1
+# POMDP: Only observe angles (cos/sin of joints), hide angular velocities
+observable_dims: [0, 1, 2, 3]
