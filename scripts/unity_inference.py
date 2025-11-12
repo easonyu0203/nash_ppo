@@ -38,7 +38,8 @@ import jax
 import numpy as np
 
 from envs.wrappers.unity_env_wrapper import UnityEnvWrapper
-from agents import BaseAgent
+from envs.wrappers.add_agent_id_wrapper import AddAgentIDWrapper
+from agents import BaseAgent, StatefulAgent
 
 
 def run_inference_server(
@@ -82,10 +83,17 @@ def run_inference_server(
         no_graphics=True,
     )
 
+    # Wrap with AddAgentIDWrapper (must match training setup)
+    env = AddAgentIDWrapper(env, mode="auto")
+
     print(f"\nConnected! Server running...")
     print(f"  Agents: {env.num_agents}")
     print(f"  Action space: {env.action_space}")
     print(f"  Observation space: {env.observation_space}")
+
+    # Check if agent is stateful
+    is_stateful = isinstance(agent, StatefulAgent)
+    print(f"  Agent type: {'Stateful (LSTM/GRU)' if is_stateful else 'Stateless (MLP)'}")
     print("\nWaiting for decision requests (Ctrl+C to stop)...\n")
 
     # Reset and start inference loop
@@ -98,14 +106,24 @@ def run_inference_server(
     episode_lengths = np.zeros(num_agents, dtype=int)
     episode_count = 0
 
+    # Initialize carry for stateful agents
+    carry = None
+    if is_stateful:
+        carry = agent.initialize_carry(num_agents)
+        print(f"Initialized hidden state for {num_agents} agents")
+
     try:
         while True:
             # Get action from agent for current observations
             key, action_key = jax.random.split(key)
-            actions = agent.get_action(
-                timestep.observation[0],  # Remove area dimension
-                action_key
-            )
+            obs = timestep.observation[0]  # Remove area dimension
+
+            if is_stateful:
+                # Stateful agent: pass carry and get updated carry
+                actions, carry = agent.get_action(obs, carry, action_key)
+            else:
+                # Stateless agent: no carry needed
+                actions = agent.get_action(obs, action_key)
 
             # Step environment (add area dimension back)
             actions_batched = np.array(actions)[np.newaxis, :]
@@ -130,6 +148,21 @@ def run_inference_server(
                     # Reset tracking for this agent
                     episode_returns[agent_idx] = 0
                     episode_lengths[agent_idx] = 0
+
+                # Reset carry for done agents (stateful agents only)
+                if is_stateful:
+                    # Reset hidden state for terminated agents
+                    done_indices = np.where(done)[0]
+                    initial_carry = agent.initialize_carry(1)  # Get single agent's initial carry
+
+                    # Update carry for each done agent
+                    for agent_idx in done_indices:
+                        # Carry structure depends on agent type (e.g., LSTMCarry with h and c)
+                        # We need to reset the carry at index agent_idx
+                        carry = jax.tree.map(
+                            lambda c, ic: c.at[agent_idx].set(ic[0]),
+                            carry, initial_carry
+                        )
 
     except KeyboardInterrupt:
         print("\n\nShutting down server...")

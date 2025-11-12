@@ -4,6 +4,7 @@ from omegaconf import DictConfig
 from envs.mytypes import BaseEnv
 from envs.wrappers.unity_subprocess_wrapper import UnitySubprocessWrapper
 from envs.wrappers.unity_subprocess_vec_env import UnitySubprocessVecEnv
+from envs.wrappers.add_agent_id_wrapper import AddAgentIDWrapper
 
 
 def create_unity_env(env_config: DictConfig, num_env: int = 1) -> BaseEnv:
@@ -69,7 +70,7 @@ def create_unity_env(env_config: DictConfig, num_env: int = 1) -> BaseEnv:
 
     if num_instances == 1:
         # Single instance mode
-        return UnitySubprocessWrapper(
+        env = UnitySubprocessWrapper(
             env_config=env_config,
             num_areas=num_areas,
             worker_id=0,
@@ -77,8 +78,12 @@ def create_unity_env(env_config: DictConfig, num_env: int = 1) -> BaseEnv:
         )
     else:
         # Multi-instance mode
-        return UnitySubprocessVecEnv(
+        env = UnitySubprocessVecEnv(
             env_config=env_config,
             num_instances=num_instances,
             num_areas=num_areas
         )
+
+    # Add agent ID to observations (auto-detects vector vs image mode)
+    env = AddAgentIDWrapper(env, mode="auto")
+    return env

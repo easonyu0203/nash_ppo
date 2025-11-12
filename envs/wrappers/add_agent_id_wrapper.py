@@ -93,39 +93,79 @@ class AddAgentIDWrapper(Wrapper):
         """
         Add agent IDs to observations.
 
+        Handles both flat and batched observations:
+        - Flat: (num_agents, *obs_shape)
+        - Batched: (batch_dim, num_agents, *obs_shape) - e.g., Unity's (num_areas, num_agents_per_area, obs_dim)
+
         Args:
-            observations: Array of shape (num_agents, *obs_shape)
+            observations: Array of shape (num_agents, *obs_shape) or (batch_dim, num_agents, *obs_shape)
 
         Returns:
             Modified observations with agent IDs added
         """
-        num_agents = observations.shape[0]
+        # Check if observations are batched (3+ dimensions for vector, 4+ for image)
+        is_batched = (self._mode == "vector" and observations.ndim >= 3) or \
+                     (self._mode == "image" and observations.ndim >= 4)
 
-        if self._mode == "vector":
-            # Flatten observations and append one-hot agent IDs
-            # Original shape: (num_agents, *obs_shape)
-            # Flatten to: (num_agents, obs_dim)
-            flat_obs = observations.reshape(num_agents, -1)
+        if is_batched:
+            # Handle batched observations (e.g., Unity's multi-area structure)
+            # Shape: (batch_dim, num_agents_per_batch, *obs_shape)
+            batch_dim = observations.shape[0]
+            num_agents = observations.shape[1]
 
-            # Create one-hot agent IDs: (num_agents, num_agents)
-            agent_ids = np.eye(num_agents, dtype=np.float32)
+            if self._mode == "vector":
+                # Flatten observations per agent: (batch_dim, num_agents, obs_dim)
+                flat_obs = observations.reshape(batch_dim, num_agents, -1)
 
-            # Concatenate: (num_agents, obs_dim + num_agents)
-            return np.concatenate([flat_obs, agent_ids], axis=-1)
+                # Create one-hot agent IDs: (num_agents, num_agents)
+                # Broadcast to: (batch_dim, num_agents, num_agents)
+                agent_ids = np.eye(num_agents, dtype=np.float32)
+                agent_ids = np.broadcast_to(agent_ids, (batch_dim, num_agents, num_agents))
 
-        else:  # image mode
-            # Add agent ID as additional channels
-            # Original shape: (num_agents, H, W, C)
-            h, w, c = observations.shape[1:]
+                # Concatenate: (batch_dim, num_agents, obs_dim + num_agents)
+                return np.concatenate([flat_obs, agent_ids], axis=-1)
 
-            # Create agent ID channels: (num_agents, H, W, num_agents)
-            # Each agent gets a channel filled with 1.0 for their ID, 0.0 for others
-            id_channels = np.zeros((num_agents, h, w, num_agents), dtype=observations.dtype)
-            for i in range(num_agents):
-                id_channels[i, :, :, i] = 1.0
+            else:  # image mode
+                # Original shape: (batch_dim, num_agents, H, W, C)
+                h, w, c = observations.shape[2:]
 
-            # Concatenate along channel dimension: (num_agents, H, W, C + num_agents)
-            return np.concatenate([observations, id_channels], axis=-1)
+                # Create agent ID channels: (batch_dim, num_agents, H, W, num_agents)
+                id_channels = np.zeros((batch_dim, num_agents, h, w, num_agents), dtype=observations.dtype)
+                for i in range(num_agents):
+                    id_channels[:, i, :, :, i] = 1.0
+
+                # Concatenate: (batch_dim, num_agents, H, W, C + num_agents)
+                return np.concatenate([observations, id_channels], axis=-1)
+
+        else:
+            # Handle flat observations (original behavior)
+            num_agents = observations.shape[0]
+
+            if self._mode == "vector":
+                # Flatten observations and append one-hot agent IDs
+                # Original shape: (num_agents, *obs_shape)
+                # Flatten to: (num_agents, obs_dim)
+                flat_obs = observations.reshape(num_agents, -1)
+
+                # Create one-hot agent IDs: (num_agents, num_agents)
+                agent_ids = np.eye(num_agents, dtype=np.float32)
+
+                # Concatenate: (num_agents, obs_dim + num_agents)
+                return np.concatenate([flat_obs, agent_ids], axis=-1)
+
+            else:  # image mode
+                # Add agent ID as additional channels
+                # Original shape: (num_agents, H, W, C)
+                h, w, c = observations.shape[1:]
+
+                # Create agent ID channels: (num_agents, H, W, num_agents)
+                # Each agent gets a channel filled with 1.0 for their ID, 0.0 for others
+                id_channels = np.zeros((num_agents, h, w, num_agents), dtype=observations.dtype)
+                for i in range(num_agents):
+                    id_channels[i, :, :, i] = 1.0
+
+                # Concatenate along channel dimension: (num_agents, H, W, C + num_agents)
+                return np.concatenate([observations, id_channels], axis=-1)
 
     def reset(self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> TimeStep:
         """Reset environment and add agent IDs to observations."""

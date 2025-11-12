@@ -262,12 +262,13 @@ class UnitySubprocessVecEnv(BaseEnv):
             info=merged_info,
         )
 
-    def reset(self, seed: Optional[int] = None) -> TimeStep:
+    def reset(self, seed: Optional[int] = None, options: Optional[Any] = None) -> TimeStep:
         """
         Reset all Unity instances in parallel.
 
         Args:
             seed: Base seed (each worker gets seed + worker_id)
+            options: Additional options (currently unused by Unity environments)
 
         Returns:
             TimeStep with shape (num_instances * num_areas, num_agents, ...)

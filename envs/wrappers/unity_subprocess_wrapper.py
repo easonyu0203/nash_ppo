@@ -247,11 +247,15 @@ class UnitySubprocessWrapper(BaseEnv):
             raise RuntimeError("Environment is closed")
         self._parent_conn.send((cmd, args))
 
-    def reset(self, seed: Optional[int] = None) -> TimeStep:
+    def reset(self, seed: Optional[int] = None, options: Optional[Any] = None) -> TimeStep:
         """
         Reset the environment.
         In sync mode (no queue), waits for response via conn.
         In async mode (with queue), should use send_command + poll queue instead.
+
+        Args:
+            seed: Random seed for environment
+            options: Additional options (currently unused by Unity environments)
         """
         if self._closed:
             raise RuntimeError("Environment is closed")

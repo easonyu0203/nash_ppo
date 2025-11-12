@@ -1,5 +1,6 @@
 """Policy head networks for different action space types."""
 
+from collections.abc import Iterable
 from typing import Union, Tuple
 from abc import ABC, abstractmethod
 import jax.numpy as jnp
@@ -146,8 +147,8 @@ def create_policy_head(
         return DiscretePolicyHead(feature_dim, action_dim, rngs)
 
     elif action_space_type == ActionSpaceType.MULTI_DISCRETE:
-        if not isinstance(action_dim, tuple):
-            raise ValueError(f"Multi-discrete action space requires tuple action_dim, got {type(action_dim)}")
+        if not isinstance(action_dim, Iterable):
+            raise ValueError(f"Multi-discrete action space requires iterable action_dim, got {type(action_dim)}")
         return MultiDiscretePolicyHead(feature_dim, action_dim, rngs)
 
     elif action_space_type == ActionSpaceType.CONTINUOUS:
