@@ -2,8 +2,8 @@ agent_name: "lstm"
 input_dim: 124
 output_dim: [3, 3, 3]
 action_space_type: "multi_discrete"
-mlp_dim: 128
-lstm_dim: 128
-num_mlp_layers: 2
-num_lstm_layers: 2
+mlp_dim: 256
+lstm_dim: 256
+num_mlp_layers: 4
+num_lstm_layers: 4
 
