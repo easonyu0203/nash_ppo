@@ -15,5 +15,6 @@ checkpoints/
 runs/
 logs/
 outputs/
+data/
 
 Sheet.md

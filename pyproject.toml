@@ -26,6 +26,7 @@ dependencies = [
     "mlagents-envs",
     "mlagents",
     "gymnasium>=1.2.1",
+    "pandas>=2.3.3",
 ]
 
 [project.optional-dependencies]
