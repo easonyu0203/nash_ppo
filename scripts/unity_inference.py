@@ -35,6 +35,7 @@ warnings.filterwarnings("ignore", message=".*Sharding info not provided.*")
 import argparse
 from typing import Optional
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 from envs.wrappers.unity_env_wrapper import UnityEnvWrapper
@@ -83,8 +84,8 @@ def run_inference_server(
         no_graphics=True,
     )
 
-    # Wrap with AddAgentIDWrapper (must match training setup)
-    env = AddAgentIDWrapper(env, mode="auto")
+    # # Wrap with AddAgentIDWrapper (must match training setup)
+    # env = AddAgentIDWrapper(env, mode="auto")
 
     print(f"\nConnected! Server running...")
     print(f"  Agents: {env.num_agents}")
@@ -116,14 +117,20 @@ def run_inference_server(
         while True:
             # Get action from agent for current observations
             key, action_key = jax.random.split(key)
-            obs = timestep.observation[0]  # Remove area dimension
+
+            # Remove area dimension - handle both dict and array observations
+            # Use jax.tree.map to handle dict observations (e.g., {"visual": [...], "vector": [...]})
+            obs = jax.tree.map(lambda x: x[0], timestep.observation)
+
+            # Convert to JAX arrays for agent inference
+            obs_jax = jax.tree.map(jnp.asarray, obs)
 
             if is_stateful:
                 # Stateful agent: pass carry and get updated carry
-                actions, carry = agent.get_action(obs, carry, action_key)
+                actions, carry = agent.get_action(obs_jax, carry, action_key)
             else:
                 # Stateless agent: no carry needed
-                actions = agent.get_action(obs, action_key)
+                actions = agent.get_action(obs_jax, action_key)
 
             # Step environment (add area dimension back)
             actions_batched = np.array(actions)[np.newaxis, :]
