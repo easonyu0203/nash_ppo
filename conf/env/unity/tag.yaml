@@ -1,0 +1,7 @@
+env_name: unity
+file_name: /home/eyu/nash_ppo/builds/tag/tag.x86_64
+time_scale: 32.0  # Speed up training
+num_areas: 8
+base_port: 5005
+add_agent_id: false  # Add agent ID to observations (default: true)
+
