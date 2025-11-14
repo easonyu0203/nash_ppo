@@ -86,6 +86,8 @@ class UnitySubprocessVecEnv(BaseEnv):
             f"(total {num_instances * num_areas} parallel environments)"
         )
 
+        # Phase 1: Start all worker processes in parallel (non-blocking)
+        logger.info("Starting all worker processes in parallel...")
         for worker_id in range(num_instances):
             try:
                 worker = UnitySubprocessWrapper(
@@ -93,14 +95,35 @@ class UnitySubprocessVecEnv(BaseEnv):
                     num_areas=num_areas,
                     worker_id=worker_id,
                     step_queue=self._step_queue,
-                    ctx=ctx
+                    ctx=ctx,
+                    wait_for_init=False  # Don't block, start in parallel
                 )
                 self._workers.append(worker)
-                logger.info(f"Worker {worker_id} initialized successfully")
+                logger.debug(f"Worker {worker_id} process started")
             except Exception as e:
                 # Cleanup already created workers
                 for w in self._workers:
-                    w.close()
+                    try:
+                        w.close()
+                    except:
+                        pass
+                raise RuntimeError(
+                    f"Failed to start worker {worker_id}/{num_instances}: {e}"
+                ) from e
+
+        # Phase 2: Wait for all workers to initialize (blocking)
+        logger.info("Waiting for all workers to initialize...")
+        for worker_id, worker in enumerate(self._workers):
+            try:
+                worker.wait_for_initialization()
+                logger.info(f"Worker {worker_id} initialized successfully")
+            except Exception as e:
+                # Cleanup all workers on any failure
+                for w in self._workers:
+                    try:
+                        w.close()
+                    except:
+                        pass
                 raise RuntimeError(
                     f"Failed to initialize worker {worker_id}/{num_instances}: {e}"
                 ) from e

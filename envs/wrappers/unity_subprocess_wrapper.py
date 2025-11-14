@@ -187,7 +187,8 @@ class UnitySubprocessWrapper(BaseEnv):
         num_areas: int = 1,
         worker_id: int = 0,
         step_queue: Optional[Queue] = None,
-        ctx: Optional[mp.context.BaseContext] = None
+        ctx: Optional[mp.context.BaseContext] = None,
+        wait_for_init: bool = True
     ):
         """
         Initialize the subprocess wrapper.
@@ -198,6 +199,8 @@ class UnitySubprocessWrapper(BaseEnv):
             worker_id: Worker ID for port offset and identification
             step_queue: Optional queue for async communication (multi-instance mode)
             ctx: Optional multiprocessing context (default: spawn)
+            wait_for_init: If True, blocks until worker initializes. If False,
+                          call wait_for_initialization() later to complete setup.
         """
         # Use 'spawn' instead of 'fork' to avoid any fork issues
         if ctx is None:
@@ -208,6 +211,8 @@ class UnitySubprocessWrapper(BaseEnv):
         self._worker_id = worker_id
         self._step_queue = step_queue
         self._parent_conn, child_conn = ctx.Pipe()
+        self._closed = False
+        self._initialized = False
 
         # Start the subprocess
         self._process = ctx.Process(
@@ -217,13 +222,29 @@ class UnitySubprocessWrapper(BaseEnv):
         )
         self._process.start()
 
+        # Optionally wait for initialization
+        if wait_for_init:
+            self.wait_for_initialization()
+
+    def wait_for_initialization(self) -> None:
+        """
+        Wait for the worker process to complete initialization.
+
+        This method must be called if wait_for_init=False was passed to __init__.
+
+        Raises:
+            RuntimeError: If initialization failed or already initialized
+        """
+        if self._initialized:
+            raise RuntimeError(f"Worker {self._worker_id} already initialized")
+
         # Wait for initialization response
         response = self._parent_conn.recv()
         if not response["success"]:
             self._process.terminate()
             self._process.join(timeout=5)
             raise RuntimeError(
-                f"Failed to initialize Unity environment in subprocess (worker_id={worker_id}):\n"
+                f"Failed to initialize Unity environment in subprocess (worker_id={self._worker_id}):\n"
                 f"{response['error']}\n"
                 f"{response.get('traceback', '')}"
             )
@@ -232,7 +253,7 @@ class UnitySubprocessWrapper(BaseEnv):
         self._observation_space = response["observation_space"]
         self._action_space = response["action_space"]
         self._num_agents = response["num_agents"]
-        self._closed = False
+        self._initialized = True
 
     def send_command(self, cmd: str, args: Any = None) -> None:
         """
@@ -245,6 +266,8 @@ class UnitySubprocessWrapper(BaseEnv):
         """
         if self._closed:
             raise RuntimeError("Environment is closed")
+        if not self._initialized:
+            raise RuntimeError("Worker not initialized. Call wait_for_initialization() first.")
         self._parent_conn.send((cmd, args))
 
     def reset(self, seed: Optional[int] = None, options: Optional[Any] = None) -> TimeStep:
@@ -259,6 +282,8 @@ class UnitySubprocessWrapper(BaseEnv):
         """
         if self._closed:
             raise RuntimeError("Environment is closed")
+        if not self._initialized:
+            raise RuntimeError("Worker not initialized. Call wait_for_initialization() first.")
 
         self._parent_conn.send((UnitySubprocessCommand.RESET, {"seed": seed}))
 
@@ -289,6 +314,8 @@ class UnitySubprocessWrapper(BaseEnv):
         """
         if self._closed:
             raise RuntimeError("Environment is closed")
+        if not self._initialized:
+            raise RuntimeError("Worker not initialized. Call wait_for_initialization() first.")
 
         self._parent_conn.send((UnitySubprocessCommand.STEP, {"actions": actions}))
 
@@ -314,16 +341,22 @@ class UnitySubprocessWrapper(BaseEnv):
     @property
     def observation_space(self):
         """Get observation space."""
+        if not self._initialized:
+            raise RuntimeError("Worker not initialized. Call wait_for_initialization() first.")
         return self._observation_space
 
     @property
     def action_space(self):
         """Get action space."""
+        if not self._initialized:
+            raise RuntimeError("Worker not initialized. Call wait_for_initialization() first.")
         return self._action_space
 
     @property
     def num_agents(self) -> int:
         """Get number of agents."""
+        if not self._initialized:
+            raise RuntimeError("Worker not initialized. Call wait_for_initialization() first.")
         return self._num_agents
 
     def render(self):
