@@ -1,0 +1,18 @@
+agent_name: "tag"
+
+# Ray sensor configuration (Unity Tag environment)
+num_rays: 17           # Number of rays in RayPerceptionSensor3D
+ray_attrs: 5           # Attributes per ray (distance + tag encodings)
+aux_dim: 3             # Auxiliary features (velocity, orientation, etc.)
+
+# Action space
+output_dim: [3, 3]     # MultiDiscrete([3, 3]) - move and rotate
+action_space_type: "multi_discrete"
+
+# Feature extractor configuration
+feature_channels: [64, 128, 256]  # Conv layer output channels
+kernel_size: 3                     # Conv kernel size
+
+# LSTM configuration
+lstm_dim: 128
+num_lstm_layers: 2

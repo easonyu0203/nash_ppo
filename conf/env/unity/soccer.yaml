@@ -3,4 +3,5 @@ file_name: /Users/Ethan/Developer/Projects/Usyd/research/external/ml-agents/Proj
 time_scale: 32.0  # Speed up training
 num_areas: 8
 base_port: 5005
+add_agent_id: true  # Add agent ID to observations (default: true)
 

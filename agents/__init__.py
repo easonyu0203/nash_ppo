@@ -4,6 +4,7 @@ from agents.base import BaseAgent, StatefulAgent, StatelessAgent
 from agents.mlp_agent import MLPAgent
 from agents.image_agent import ImageAgent
 from agents.lstm_agent import LSTMAgent
+from agents.tag_agent import TagAgent
 
 import chex
 from omegaconf import DictConfig, OmegaConf
@@ -15,6 +16,7 @@ _AGENT_REGISTRY = {
     "mlp": MLPAgent,
     "image": ImageAgent,
     "lstm": LSTMAgent,
+    "tag": TagAgent,
 }
 
 
@@ -90,6 +92,7 @@ __all__ = [
     'StatelessAgent',
     'ImageAgent',
     'LSTMAgent',
+    'TagAgent',
     'create_agent',
     'get_agent_class_from_name',
     'get_agent_name_from_class',

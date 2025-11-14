@@ -151,6 +151,7 @@ def inspect_unity_environment(
         print("    " + "-" * 60)
 
         issues = []
+        warnings = []
         for behavior_name in behavior_names:
             spec = env.behavior_specs[behavior_name]
 
@@ -158,14 +159,23 @@ def inspect_unity_environment(
             if spec.action_spec.continuous_size > 0:
                 issues.append(f"Behavior '{behavior_name}' has continuous actions (not supported)")
 
-            # Check multiple observations
+            # Check multiple observations - now supported as Dict observation space
             if len(spec.observation_specs) > 1:
-                issues.append(f"Behavior '{behavior_name}' has {len(spec.observation_specs)} observations (only 1 supported)")
+                warnings.append(
+                    f"Behavior '{behavior_name}' has {len(spec.observation_specs)} observations. "
+                    f"Will use Dict observation space with keys: {', '.join([f'obs_{i}' for i in range(len(spec.observation_specs))])}"
+                )
 
         if issues:
             print("    Issues found:")
             for issue in issues:
                 print(f"      ✗ {issue}")
+        elif warnings:
+            print("    Compatibility notes:")
+            for warning in warnings:
+                print(f"      ⚠ {warning}")
+            print("\n    All checks passed ✓")
+            print("    Environment is compatible with the framework!")
         else:
             print("    All checks passed ✓")
             print("    Environment is compatible with the framework!")
@@ -197,18 +207,40 @@ def inspect_unity_environment(
         # Reset and check timestep structure
         timestep = wrapper.reset(seed=0)
         print(f"\n    TimeStep structure after reset:")
-        print(f"      - observation.shape: {timestep.observation.shape}")
+
+        # Handle both single observation (array) and multiple observations (dict)
+        if isinstance(timestep.observation, dict):
+            print(f"      - observation: Dict with keys {list(timestep.observation.keys())}")
+            for key, obs in timestep.observation.items():
+                print(f"        - {key}.shape: {obs.shape}")
+        else:
+            print(f"      - observation.shape: {timestep.observation.shape}")
+
         print(f"      - reward.shape: {timestep.reward.shape}")
         print(f"      - terminated.shape: {timestep.terminated.shape}")
         print(f"      - truncated.shape: {timestep.truncated.shape}")
 
         print(f"\n    Sample observation (first agent):")
-        sample_obs = timestep.observation[0, 0]  # First area, first agent
-        print(f"      - Shape: {sample_obs.shape}")
-        print(f"      - Min/Max: [{sample_obs.min():.3f}, {sample_obs.max():.3f}]")
-        print(f"      - Mean/Std: {sample_obs.mean():.3f} ± {sample_obs.std():.3f}")
-        if sample_obs.size <= 20:
-            print(f"      - Values: {sample_obs}")
+
+        # Handle dict vs array observations
+        if isinstance(timestep.observation, dict):
+            # Multiple observations - show each one
+            for key, obs_array in timestep.observation.items():
+                sample_obs = obs_array[0, 0]  # First area, first agent
+                print(f"      - {key}:")
+                print(f"          Shape: {sample_obs.shape}")
+                print(f"          Min/Max: [{sample_obs.min():.3f}, {sample_obs.max():.3f}]")
+                print(f"          Mean/Std: {sample_obs.mean():.3f} ± {sample_obs.std():.3f}")
+                if sample_obs.size <= 20:
+                    print(f"          Values: {sample_obs}")
+        else:
+            # Single observation
+            sample_obs = timestep.observation[0, 0]  # First area, first agent
+            print(f"      - Shape: {sample_obs.shape}")
+            print(f"      - Min/Max: [{sample_obs.min():.3f}, {sample_obs.max():.3f}]")
+            print(f"      - Mean/Std: {sample_obs.mean():.3f} ± {sample_obs.std():.3f}")
+            if sample_obs.size <= 20:
+                print(f"      - Values: {sample_obs}")
 
         wrapper.close()
 

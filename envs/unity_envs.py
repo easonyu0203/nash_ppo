@@ -24,6 +24,7 @@ def create_unity_env(env_config: DictConfig, num_env: int = 1) -> BaseEnv:
             - no_graphics (bool): Disable graphics (default: True)
             - additional_args (list): Additional Unity command line args (default: None)
             - num_areas (int): Number of parallel training areas per instance (required)
+            - add_agent_id (bool): Whether to add agent ID to observations (default: True)
         num_env: Total number of parallel environments desired
 
     Returns:
@@ -41,11 +42,13 @@ def create_unity_env(env_config: DictConfig, num_env: int = 1) -> BaseEnv:
         # Single instance with 4 areas
         env_name: unity
         num_areas: 4
+        add_agent_id: true
         # Call with num_env=4
 
         # Multi-instance: 2 instances × 4 areas = 8 total envs
         env_name: unity
         num_areas: 4
+        add_agent_id: true
         # Call with num_env=8
     """
     # Get num_areas from config
@@ -84,6 +87,9 @@ def create_unity_env(env_config: DictConfig, num_env: int = 1) -> BaseEnv:
             num_areas=num_areas
         )
 
-    # Add agent ID to observations (auto-detects vector vs image mode)
-    env = AddAgentIDWrapper(env, mode="auto")
+    # Optionally add agent ID to observations (default: True)
+    add_agent_id = env_config.get("add_agent_id", True)
+    if add_agent_id:
+        env = AddAgentIDWrapper(env, mode="auto")
+
     return env
