@@ -11,7 +11,7 @@ wheels/
 .venv
 
 # experiment outputs
-checkpoints/
+# checkpoints/
 runs/
 logs/
 outputs/

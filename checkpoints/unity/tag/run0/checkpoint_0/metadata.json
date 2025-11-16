@@ -1,0 +1,21 @@
+{
+  "agent_class_name": "tag",
+  "agent_config": {
+    "num_rays": 17,
+    "ray_attrs": 5,
+    "aux_dim": 3,
+    "output_dim": [
+      3,
+      3
+    ],
+    "action_space_type": "multi_discrete",
+    "feature_channels": [
+      64,
+      128,
+      256
+    ],
+    "lstm_dim": 128,
+    "num_lstm_layers": 2,
+    "kernel_size": 3
+  }
+}
