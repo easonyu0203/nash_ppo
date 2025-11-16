@@ -9,6 +9,7 @@ Usage:
         --step-interval 1000 \
         --target-timesteps 1000 \
         --num-runs 100 \
+        --output-name run0 \
         --file-name /Users/Ethan/Developer/Projects/Usyd/research/external/ml-agents/Project/Builds/inference/main.app \
         --seed 42 \
         --time-scale 20.0
@@ -158,9 +159,13 @@ def process_checkpoint(
     file_name: Optional[str],
     base_port: Optional[int],
     time_scale: float,
+    output_name: str,
 ) -> tuple[int, bool, str]:
     """
     Process a single checkpoint: load agent, collect episodes, save data.
+
+    Args:
+        output_name: Name of the output subdirectory within data/
 
     Returns:
         Tuple of (step, success, message)
@@ -171,7 +176,7 @@ def process_checkpoint(
         agent = BaseAgent.load_checkpoint(checkpoint_dir, step, key)
 
         # Create output directory
-        output_dir = Path("data") / f"step_{step}"
+        output_dir = Path("data") / output_name / f"step_{step}"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Calculate port for this checkpoint
@@ -221,6 +226,7 @@ def run_data_collection(
     num_runs: int,
     seed: int,
     target_timesteps: int,
+    output_name: str,
     file_name: Optional[str] = None,
     port: Optional[int] = None,
     time_scale: float = 20.0,
@@ -237,6 +243,7 @@ def run_data_collection(
         num_runs: Number of episodes to collect per checkpoint
         seed: Base random seed
         target_timesteps: Target number of timesteps to collect per episode
+        output_name: Name of the output subdirectory within data/
         file_name: Path to Unity executable (None = Editor mode)
         port: Port for communication (None = auto-select)
         time_scale: Unity time scale
@@ -252,6 +259,7 @@ def run_data_collection(
     print(f"  Episodes per checkpoint: {num_runs}")
     print(f"  Total episodes: {len(checkpoint_steps) * num_runs}")
     print(f"  Timesteps per episode: {target_timesteps}")
+    print(f"  Output directory: data/{output_name}/")
     print(f"  Base seed: {seed}")
     print(f"  Unity file: {file_name if file_name else 'Editor'}")
     print(f"  Port: {port if port else 'auto'}")
@@ -275,6 +283,7 @@ def run_data_collection(
                     file_name,
                     port,
                     time_scale,
+                    output_name,
                 )
                 futures[future] = step
 
@@ -294,7 +303,7 @@ def run_data_collection(
 
         print(f"\n✓ Data collection complete!")
         print(f"  Collected {len(checkpoint_steps)} checkpoints × {num_runs} episodes = {len(checkpoint_steps) * num_runs} total episodes")
-        print(f"  Data saved to: data/")
+        print(f"  Data saved to: data/{output_name}/")
 
     except KeyboardInterrupt:
         print("\n\nData collection interrupted by user...")
@@ -365,10 +374,16 @@ def main():
         help="Target number of timesteps to collect per episode (default: 1000)"
     )
     parser.add_argument(
+        "--output-name",
+        type=str,
+        required=True,
+        help="Name of the output subdirectory within data/ (e.g., 'run0', 'experiment1')"
+    )
+    parser.add_argument(
         "--max-workers",
         type=int,
         default=8,
-        help="Maximum number of parallel workers (default: 4)"
+        help="Maximum number of parallel workers (default: 8)"
     )
 
     args = parser.parse_args()
@@ -381,6 +396,7 @@ def main():
         num_runs=args.num_runs,
         seed=args.seed,
         target_timesteps=args.target_timesteps,
+        output_name=args.output_name,
         file_name=args.file_name,
         port=args.port,
         time_scale=args.time_scale,
