@@ -7,6 +7,7 @@ from agents.networks.feature_extractors.recurrent import (
     RecurrentFeatureExtractor,
     LSTMFeatureExtractor,
 )
+from agents.networks.feature_extractors.embedding import EmbeddingMLPFeatureExtractor
 
 __all__ = [
     'FeatureExtractor',
@@ -14,4 +15,5 @@ __all__ = [
     'CNNFeatureExtractor',
     'RecurrentFeatureExtractor',
     'LSTMFeatureExtractor',
+    'EmbeddingMLPFeatureExtractor',
 ]

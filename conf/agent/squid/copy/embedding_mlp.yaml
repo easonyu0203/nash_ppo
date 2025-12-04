@@ -1,0 +1,7 @@
+agent_name: "embedding_mlp"
+vocab_size: 8
+output_dim: 8
+action_space_type: "discrete"
+embedding_dim: 32
+mlp_dim: 64
+num_hidden_layers: 2

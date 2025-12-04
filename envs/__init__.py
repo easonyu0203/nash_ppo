@@ -2,11 +2,13 @@ from omegaconf import DictConfig
 from envs.wrappers import AutoResetWrapper, GymnasiumWrapper, DummyVecEnv
 from envs.gymnasium_envs import create_gymnasium_env
 from envs.unity_envs import create_unity_env
+from envs.squid_envs import create_squid_env
 
 # Registry mapping env_name to creator function
 _ENV_REGISTRY = {
     "gymnasium": create_gymnasium_env,
     "unity": create_unity_env,
+    "squid": create_squid_env,
     # Add more environments here as needed
 }
 

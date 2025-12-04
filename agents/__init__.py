@@ -5,6 +5,8 @@ from agents.mlp_agent import MLPAgent
 from agents.image_agent import ImageAgent
 from agents.lstm_agent import LSTMAgent
 from agents.tag_agent import TagAgent
+from agents.embedding_mlp_agent import EmbeddingMLPAgent
+from agents.embedding_lstm_agent import EmbeddingLSTMAgent
 
 import chex
 from omegaconf import DictConfig, OmegaConf
@@ -17,6 +19,8 @@ _AGENT_REGISTRY = {
     "image": ImageAgent,
     "lstm": LSTMAgent,
     "tag": TagAgent,
+    "embedding_mlp": EmbeddingMLPAgent,
+    "embedding_lstm": EmbeddingLSTMAgent,
 }
 
 
@@ -93,6 +97,8 @@ __all__ = [
     'ImageAgent',
     'LSTMAgent',
     'TagAgent',
+    'EmbeddingMLPAgent',
+    'EmbeddingLSTMAgent',
     'create_agent',
     'get_agent_class_from_name',
     'get_agent_name_from_class',

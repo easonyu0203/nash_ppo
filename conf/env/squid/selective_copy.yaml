@@ -1,0 +1,6 @@
+env_name: squid
+squid_env_id: copying
+sequence_length: 128
+vocab_size: 8
+num_tokens_to_remember: 4
+selective_copy: true
