@@ -96,7 +96,7 @@ class ActorCriticAgent(StatelessAgent):
         Returns:
             Value estimates of shape (batch_size,)
         """
-        features = self.critic_extractor(observations)
+        features = self.critic_extractor(observations, key)
         return self.value_head(features).squeeze(-1)
 
     @jax.jit
@@ -112,7 +112,7 @@ class ActorCriticAgent(StatelessAgent):
         Returns:
             Action distribution (type depends on action space)
         """
-        features = self.policy_extractor(observations)
+        features = self.policy_extractor(observations, key)
         return self.policy_head(features)
 
     @jax.jit
@@ -171,12 +171,18 @@ class ActorCriticAgent(StatelessAgent):
         Returns:
             Tuple of (distribution, values)
         """
+        # Split key for policy and critic extractors if provided
+        if key is not None:
+            policy_key, critic_key = jax.random.split(key)
+        else:
+            policy_key = critic_key = None
+
         # Get action distribution
-        policy_features = self.policy_extractor(observations)
+        policy_features = self.policy_extractor(observations, policy_key)
         dist = self.policy_head(policy_features)
 
         # Get value estimate
-        critic_features = self.critic_extractor(observations)
+        critic_features = self.critic_extractor(observations, critic_key)
         values = self.value_head(critic_features).squeeze(-1)
 
         return dist, values

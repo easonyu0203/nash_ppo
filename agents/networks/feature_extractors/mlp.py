@@ -1,5 +1,6 @@
 """MLP feature extractor for vector observations."""
 
+from typing import Optional
 import jax.numpy as jnp
 import chex
 from flax import nnx
@@ -34,11 +35,12 @@ class MLPFeatureExtractor(FeatureExtractor):
         self.mlp = nnx.Sequential(*layers)
         self._output_dim = hidden_dim
 
-    def __call__(self, observations: chex.Array) -> chex.Array:
+    def __call__(self, observations: chex.Array, key: Optional[chex.PRNGKey] = None) -> chex.Array:
         """Extract features from vector observations.
 
         Args:
             observations: Observation tensor of shape (batch_size, *obs_shape)
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Feature tensor of shape (batch_size, hidden_dim)

@@ -1,6 +1,6 @@
 """Recurrent feature extractors (LSTM, GRU) that wrap base feature extractors."""
 
-from typing import Tuple
+from typing import Tuple, Optional
 from abc import abstractmethod
 import jax
 import jax.numpy as jnp
@@ -34,13 +34,14 @@ class RecurrentFeatureExtractor(FeatureExtractor):
         ...
 
     @abstractmethod
-    def __call__(self, observations: chex.Array, carry) -> Tuple[chex.Array, chex.Array]:
+    def __call__(self, observations: chex.Array, carry, key: Optional[chex.PRNGKey] = None) -> Tuple[chex.Array, chex.Array]:
         """Process observations with hidden state.
 
         Args:
             observations: Observation tensor of shape (batch_size, *obs_shape)
             carry: Hidden state from previous timestep with shape (batch_size, *carry_shape)
                   The carry is batched - one hidden state per sample in the batch
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Tuple of (features, new_carry) where new_carry has shape (batch_size, *carry_shape)
@@ -108,21 +109,28 @@ class LSTMFeatureExtractor(RecurrentFeatureExtractor):
             carries.append((h, c))  # Regular tuple
         return carries  # Regular list - pytree compatible
 
-    def __call__(self, observations: chex.Array, carry):
+    def __call__(self, observations: chex.Array, carry, key: Optional[chex.PRNGKey] = None):
         """Process observations through base extractor then stacked LSTM layers.
 
         Args:
             observations: Observation tensor of shape (batch_size, *obs_shape)
             carry: List of LSTM carries [(h, c), ...], one per layer
                   Each (h, c) tuple has shapes (batch_size, hidden_dim)
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Tuple of (features, new_carries) where:
             - features: shape (batch_size, hidden_dim)
             - new_carries: list of (h, c) tuples, each with shape (batch_size, hidden_dim)
         """
+        # Split key for base extractor if provided
+        if key is not None:
+            key, base_key = jax.random.split(key)
+        else:
+            base_key = None
+
         # Extract latent representation from observations
-        x = self.base_extractor(observations)
+        x = self.base_extractor(observations, base_key)
 
         # Process through stacked LSTM layers
         new_carries = []

@@ -114,7 +114,7 @@ class StatefulActorCriticAgent(StatefulAgent):
             Tuple of (values, new_carry) where new_carry is (policy_carry, new_critic_carry)
         """
         policy_carry, critic_carry = carry
-        features, new_critic_carry = self.critic_extractor(observations, critic_carry)
+        features, new_critic_carry = self.critic_extractor(observations, critic_carry, key)
         values = self.value_head(features).squeeze(-1)
         return values, (policy_carry, new_critic_carry)
 
@@ -133,7 +133,7 @@ class StatefulActorCriticAgent(StatefulAgent):
             Tuple of (distribution, new_carry) where new_carry is (new_policy_carry, critic_carry)
         """
         policy_carry, critic_carry = carry
-        features, new_policy_carry = self.policy_extractor(observations, policy_carry)
+        features, new_policy_carry = self.policy_extractor(observations, policy_carry, key)
         dist = self.policy_head(features)
         return dist, (new_policy_carry, critic_carry)
 
@@ -209,12 +209,18 @@ class StatefulActorCriticAgent(StatefulAgent):
         """
         policy_carry, critic_carry = carry
 
+        # Split key for policy and critic extractors if provided
+        if key is not None:
+            policy_key, critic_key = jax.random.split(key)
+        else:
+            policy_key = critic_key = None
+
         # Get action distribution
-        policy_features, new_policy_carry = self.policy_extractor(observations, policy_carry)
+        policy_features, new_policy_carry = self.policy_extractor(observations, policy_carry, policy_key)
         dist = self.policy_head(policy_features)
 
         # Get value estimate
-        critic_features, new_critic_carry = self.critic_extractor(observations, critic_carry)
+        critic_features, new_critic_carry = self.critic_extractor(observations, critic_carry, critic_key)
         values = self.value_head(critic_features).squeeze(-1)
 
         new_carry = (new_policy_carry, new_critic_carry)
