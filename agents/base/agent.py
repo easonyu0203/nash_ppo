@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Tuple, Any
+from typing import Tuple, Any, Optional
 from flax import nnx
 import chex
 import abc
@@ -189,11 +189,12 @@ class StatelessAgent(BaseAgent, abc.ABC):
     """
 
     @abc.abstractmethod
-    def get_value(self, observations: env_types.Observation) -> chex.Array:
+    def get_value(self, observations: env_types.Observation, key: Optional[chex.PRNGKey] = None) -> chex.Array:
         """Compute state value using the value network.
 
         Args:
             observations: Observation tensor of shape (batch_size, *observation_shape)
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Value estimates of shape (batch_size,)
@@ -230,12 +231,13 @@ class StatelessAgent(BaseAgent, abc.ABC):
 
     @abc.abstractmethod
     def get_action_distribution(
-        self, observations: env_types.Observation
+        self, observations: env_types.Observation, key: Optional[chex.PRNGKey] = None
     ) -> distrax.Distribution:
         """Get action distribution from policy network.
 
         Args:
             observations: Observation tensor of shape (batch_size, *observation_shape)
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             distrax.Distribution of shape (batch_size,)
@@ -244,7 +246,7 @@ class StatelessAgent(BaseAgent, abc.ABC):
 
     @abc.abstractmethod
     def get_distribution_and_value(
-        self, observations: env_types.Observation
+        self, observations: env_types.Observation, key: Optional[chex.PRNGKey] = None
     ) -> Tuple[distrax.Distribution, chex.Array]:
         """Get action distribution and value simultaneously.
 
@@ -253,6 +255,7 @@ class StatelessAgent(BaseAgent, abc.ABC):
 
         Args:
             observations: Observation tensor of shape (batch_size, *observation_shape)
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Tuple of (distribution, values) where values has shape (batch_size,)
@@ -309,7 +312,7 @@ class StatefulAgent(BaseAgent, abc.ABC):
 
     @abc.abstractmethod
     def get_value(
-        self, observations: env_types.Observation, carry: Any
+        self, observations: env_types.Observation, carry: Any, key: Optional[chex.PRNGKey] = None
     ) -> Tuple[chex.Array, Any]:
         """Compute state value with hidden state.
 
@@ -317,6 +320,7 @@ class StatefulAgent(BaseAgent, abc.ABC):
             observations: Observation tensor of shape (batch_size, *observation_shape)
             carry: Hidden state from previous timestep with shape (batch_size, *carry_shape)
                   The carry is batched - one hidden state per sample in the batch
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Tuple of (values, new_carry) where new_carry has shape (batch_size, *carry_shape)
@@ -362,7 +366,7 @@ class StatefulAgent(BaseAgent, abc.ABC):
 
     @abc.abstractmethod
     def get_action_distribution(
-        self, observations: env_types.Observation, carry: Any
+        self, observations: env_types.Observation, carry: Any, key: Optional[chex.PRNGKey] = None
     ) -> Tuple[distrax.Distribution, Any]:
         """Get action distribution with hidden state.
 
@@ -370,6 +374,7 @@ class StatefulAgent(BaseAgent, abc.ABC):
             observations: Observation tensor of shape (batch_size, *observation_shape)
             carry: Hidden state from previous timestep with shape (batch_size, *carry_shape)
                   The carry is batched - one hidden state per sample in the batch
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Tuple of (distribution, new_carry) where new_carry has shape (batch_size, *carry_shape)
@@ -378,7 +383,7 @@ class StatefulAgent(BaseAgent, abc.ABC):
 
     @abc.abstractmethod
     def get_distribution_and_value(
-        self, observations: env_types.Observation, carry: Any
+        self, observations: env_types.Observation, carry: Any, key: Optional[chex.PRNGKey] = None
     ) -> Tuple[distrax.Distribution, chex.Array, Any]:
         """Get action distribution and value with hidden state.
 
@@ -390,6 +395,7 @@ class StatefulAgent(BaseAgent, abc.ABC):
             observations: Observation tensor of shape (batch_size, *observation_shape)
             carry: Hidden state from previous timestep with shape (batch_size, *carry_shape)
                   The carry is batched - one hidden state per sample in the batch
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Tuple of (distribution, values, new_carry) where:

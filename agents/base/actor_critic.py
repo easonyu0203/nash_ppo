@@ -1,6 +1,6 @@
 """Base Actor-Critic agent with shared policy/value logic."""
 
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional
 import jax
 import jax.numpy as jnp
 import chex
@@ -86,11 +86,12 @@ class ActorCriticAgent(StatelessAgent):
     # ===== Core agent interface =====
 
     @jax.jit
-    def get_value(self, observations: env_types.Observation) -> chex.Array:
+    def get_value(self, observations: env_types.Observation, key: Optional[chex.PRNGKey] = None) -> chex.Array:
         """Compute state value estimate.
 
         Args:
             observations: Observation tensor
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Value estimates of shape (batch_size,)
@@ -100,12 +101,13 @@ class ActorCriticAgent(StatelessAgent):
 
     @jax.jit
     def get_action_distribution(
-        self, observations: env_types.Observation
+        self, observations: env_types.Observation, key: Optional[chex.PRNGKey] = None
     ) -> distrax.Distribution:
         """Get action distribution from policy network.
 
         Args:
             observations: Observation tensor
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Action distribution (type depends on action space)
@@ -155,7 +157,7 @@ class ActorCriticAgent(StatelessAgent):
 
     @jax.jit
     def get_distribution_and_value(
-        self, observations: env_types.Observation
+        self, observations: env_types.Observation, key: Optional[chex.PRNGKey] = None
     ) -> Tuple[distrax.Distribution, chex.Array]:
         """Get action distribution and value simultaneously.
 
@@ -164,6 +166,7 @@ class ActorCriticAgent(StatelessAgent):
 
         Args:
             observations: Observation tensor
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Tuple of (distribution, values)

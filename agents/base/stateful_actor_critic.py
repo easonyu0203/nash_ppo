@@ -1,6 +1,6 @@
 """Stateful Actor-Critic agent for recurrent networks with hidden states."""
 
-from typing import Tuple, Union, Any
+from typing import Tuple, Union, Any, Optional
 import jax
 import chex
 import distrax
@@ -101,13 +101,14 @@ class StatefulActorCriticAgent(StatefulAgent):
 
     @jax.jit
     def get_value(
-        self, observations: env_types.Observation, carry: Any
+        self, observations: env_types.Observation, carry: Any, key: Optional[chex.PRNGKey] = None
     ) -> Tuple[chex.Array, Any]:
         """Compute state value estimate with hidden state.
 
         Args:
             observations: Observation tensor
             carry: Full carry tuple (policy_carry, critic_carry)
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Tuple of (values, new_carry) where new_carry is (policy_carry, new_critic_carry)
@@ -119,13 +120,14 @@ class StatefulActorCriticAgent(StatefulAgent):
 
     @jax.jit
     def get_action_distribution(
-        self, observations: env_types.Observation, carry: Any
+        self, observations: env_types.Observation, carry: Any, key: Optional[chex.PRNGKey] = None
     ) -> Tuple[distrax.Distribution, Any]:
         """Get action distribution from policy network with hidden state.
 
         Args:
             observations: Observation tensor
             carry: Full carry tuple (policy_carry, critic_carry)
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Tuple of (distribution, new_carry) where new_carry is (new_policy_carry, critic_carry)
@@ -189,7 +191,7 @@ class StatefulActorCriticAgent(StatefulAgent):
 
     @jax.jit
     def get_distribution_and_value(
-        self, observations: env_types.Observation, carry: Any
+        self, observations: env_types.Observation, carry: Any, key: Optional[chex.PRNGKey] = None
     ) -> Tuple[distrax.Distribution, chex.Array, Any]:
         """Get action distribution and value with hidden states.
 
@@ -199,6 +201,7 @@ class StatefulActorCriticAgent(StatefulAgent):
         Args:
             observations: Observation tensor
             carry: Full carry tuple (policy_carry, critic_carry)
+            key: Optional JAX random key for stochastic operations
 
         Returns:
             Tuple of (distribution, values, new_carry)
