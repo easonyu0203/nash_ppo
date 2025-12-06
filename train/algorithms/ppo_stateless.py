@@ -1,5 +1,6 @@
 """PPO training for stateless agents (flat batches)."""
 
+import jax
 import jax.numpy as jnp
 import chex
 from flax import nnx
@@ -34,6 +35,7 @@ def _compute_agent_outputs(
     mag_agent: BaseAgent | None,
     observations: chex.ArrayTree,
     actions: jnp.ndarray,
+    key: chex.PRNGKey,
     norm_factor: float,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Compute agent outputs for the given observations and actions.
@@ -43,13 +45,17 @@ def _compute_agent_outputs(
         mag_agent: Optional magnetic agent for KL computation
         observations: Batch of observations (can be pytree or array)
         actions: Batch of actions
+        key: Random key for stochastic operations
         norm_factor: Normalization factor for log probs
 
     Returns:
         Tuple of (log_probs, entropies, values, kls) for the batch
     """
+    # Split keys for agent and magnetic agent
+    key, agent_key, mag_key = jax.random.split(key, 3)
+
     # Get action distribution and value from agent simultaneously
-    action_dist, values = agent.get_distribution_and_value(observations)
+    action_dist, values = agent.get_distribution_and_value(observations, agent_key)
 
     # Compute policy outputs
     log_probs = action_dist.log_prob(actions) / norm_factor
@@ -58,7 +64,7 @@ def _compute_agent_outputs(
     # Compute KL divergence with magnetic agent if available
     kls = jnp.zeros_like(log_probs)
     if mag_agent is not None:
-        mag_dist, _ = mag_agent.get_distribution_and_value(observations)
+        mag_dist, _ = mag_agent.get_distribution_and_value(observations, mag_key)
         kls = action_dist.kl_divergence(mag_dist) / norm_factor
 
     return log_probs, entropies, values, kls
@@ -127,6 +133,7 @@ def calculate_loss_stateless(
     agent: BaseAgent,
     mag_agent: BaseAgent,
     dataset: train_types.Dataset,
+    key: chex.PRNGKey,
     ent_coef: float,
     mag_coef: float,
     clip_eps: float,
@@ -141,6 +148,7 @@ def calculate_loss_stateless(
         agent: Agent to train
         mag_agent: Magnetic agent for regularization (can be None)
         dataset: Training dataset with flat batches
+        key: Random key for stochastic operations
         ent_coef: Entropy coefficient
         mag_coef: Magnetic loss coefficient
         clip_eps: PPO clipping epsilon
@@ -171,6 +179,7 @@ def calculate_loss_stateless(
         mag_agent=mag_agent,
         observations=dataset.observation,
         actions=dataset.action,
+        key=key,
         norm_factor=norm_factor,
     )
 

@@ -85,27 +85,35 @@ def update_agent(
     # Choose loss function based on agent type
     is_stateful = isinstance(agent, StatefulAgent)
 
-    def calculate_loss(agent: BaseAgent, dataset: train_types.Dataset) -> Tuple[chex.Numeric, dict[str, chex.Numeric]]:
+    def calculate_loss(agent: BaseAgent, dataset: train_types.Dataset, key: chex.PRNGKey) -> Tuple[chex.Numeric, dict[str, chex.Numeric]]:
         """Wrapper that dispatches to appropriate loss function.
+
+        Args:
+            agent: Agent to compute loss for
+            dataset: Training dataset
+            key: Random key for stochastic operations
 
         Returns:
             Tuple of (total_loss, aux_losses) where aux_losses contains metrics
         """
         if is_stateful:
             return calculate_loss_stateful(
-                agent, mag_agent, dataset,
+                agent, mag_agent, dataset, key,
                 ent_coef, mag_coef, clip_eps, normalize_logprob
             )
         else:
             return calculate_loss_stateless(
-                agent, mag_agent, dataset,
+                agent, mag_agent, dataset, key,
                 ent_coef, mag_coef, clip_eps, normalize_logprob
             )
 
     def update_batch(carry: UpdateState, batch: train_types.Dataset):
         """Update the agent for a single batch."""
+        # Split key for loss computation
+        carry.key, loss_key = jax.random.split(carry.key, 2)
+
         # Compute gradient with auxiliary outputs
-        grad, aux_losses = nnx.grad(calculate_loss, has_aux=True)(carry.agent, batch)
+        grad, aux_losses = nnx.grad(calculate_loss, has_aux=True)(carry.agent, batch, loss_key)
 
         # Compute global gradient norm before clipping
         global_norm = optax.global_norm(grad)

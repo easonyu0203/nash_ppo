@@ -41,6 +41,7 @@ def _compute_bptt_outputs(
     actions: jnp.ndarray,
     dones: jnp.ndarray,
     initial_carries: chex.ArrayTree,
+    key: chex.PRNGKey,
     bptt_length: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Run BPTT forward pass through sequences to get agent outputs.
@@ -59,30 +60,35 @@ def _compute_bptt_outputs(
         actions: Shape (batch_size, bptt_length, action_dim)
         dones: Shape (batch_size, bptt_length) - episode boundaries for resetting carries
         initial_carries: Shape (batch_size, *carry_shape) - batched carries, one per sequence
+        key: Random key for stochastic operations
         bptt_length: Length of BPTT sequences
 
     Returns:
         Tuple of (log_probs, entropies, values, kls) with shape (batch_size, bptt_length)
     """
-    def process_timestep(carries, timestep_data):
+    def process_timestep(carry_and_key, timestep_data):
         """Process one timestep for all sequences in batch.
 
         The agent handles batched observations and carries directly - no vmap needed.
         Each sequence in the batch has its own carry that gets updated independently.
 
         Args:
-            carries: Batched carries with shape (batch_size, *carry_shape)
+            carry_and_key: Tuple of (carries, key) where carries have shape (batch_size, *carry_shape)
             timestep_data: Tuple of (obs, actions, dones) all with shape (batch_size, ...)
 
         Returns:
-            Tuple of (new_carries, outputs) where:
-            - new_carries has shape (batch_size, *carry_shape)
+            Tuple of (new_carry_and_key, outputs) where:
+            - new_carry_and_key is (new_carries, new_key)
             - outputs are (log_probs, entropies, values, kls) each with shape (batch_size,)
         """
+        carries, key = carry_and_key
         obs_t, action_t, done_t = timestep_data  # (batch_size, *obs_shape), (batch_size, action_dim), (batch_size,)
 
+        # Split keys for agent and magnetic agent
+        key, agent_key, mag_key = jax.random.split(key, 3)
+
         # Agent handles batched observations and carries directly
-        dist, values, new_carries = agent.get_distribution_and_value(obs_t, carries)
+        dist, values, new_carries = agent.get_distribution_and_value(obs_t, carries, agent_key)
 
         # Compute policy outputs
         log_probs = dist.log_prob(action_t)
@@ -91,7 +97,7 @@ def _compute_bptt_outputs(
         # Compute KL with magnetic agent if available
         kls = jnp.zeros_like(log_probs)
         if mag_agent is not None:
-            mag_dist, _, _ = mag_agent.get_distribution_and_value(obs_t, carries)
+            mag_dist, _, _ = mag_agent.get_distribution_and_value(obs_t, carries, mag_key)
             kls = dist.kl_divergence(mag_dist)
 
         # Reset carries at episode boundaries to prevent hidden state leakage
@@ -104,7 +110,7 @@ def _compute_bptt_outputs(
 
         new_carries = jax.tree.map(reset_carry_at_done, new_carries)
 
-        return new_carries, (log_probs, entropies, values, kls)
+        return (new_carries, key), (log_probs, entropies, values, kls)
 
     # Transpose to (bptt_length, batch_size, ...) for scanning over time
     obs_time_major = _swap_leading_axes(observations)
@@ -114,7 +120,7 @@ def _compute_bptt_outputs(
     # Scan over time dimension, processing all sequences at each timestep
     _, outputs = jax.lax.scan(
         process_timestep,
-        initial_carries,
+        (initial_carries, key),
         (obs_time_major, actions_time_major, dones_time_major),
         length=bptt_length
     )
@@ -192,6 +198,7 @@ def calculate_loss_stateful(
     agent: StatefulAgent,
     mag_agent: StatefulAgent,
     dataset: train_types.Dataset,
+    key: chex.PRNGKey,
     ent_coef: float,
     mag_coef: float,
     clip_eps: float,
@@ -206,6 +213,7 @@ def calculate_loss_stateful(
         agent: Stateful agent to train
         mag_agent: Magnetic agent for regularization (can be None)
         dataset: Training dataset with sequences
+        key: Random key for stochastic operations
         ent_coef: Entropy coefficient
         mag_coef: Magnetic loss coefficient
         clip_eps: PPO clipping epsilon
@@ -239,6 +247,7 @@ def calculate_loss_stateful(
         actions=dataset.action,
         dones=dataset.done,
         initial_carries=dataset.initial_carry,
+        key=key,
         bptt_length=bptt_length,
     )
 

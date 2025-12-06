@@ -144,6 +144,7 @@ def _reset_carries_at_done(carries: Any, done: chex.Array) -> Any:
 def _get_bootstrap_value_stateless(
     agent: BaseAgent,
     observation: env_types.Observation,
+    key: chex.PRNGKey,
     num_envs: int,
     num_agents: int
 ) -> chex.Array:
@@ -152,6 +153,7 @@ def _get_bootstrap_value_stateless(
     Args:
         agent: Stateless agent
         observation: NumPy observation (will be converted to JAX)
+        key: Random key for stochastic operations
         num_envs: Number of environments
         num_agents: Number of agents per environment
 
@@ -168,7 +170,7 @@ def _get_bootstrap_value_stateless(
     )
 
     # Get value estimate
-    value_flat = agent.get_value(obs_flat)
+    value_flat = agent.get_value(obs_flat, key)
     return value_flat.reshape(num_envs, num_agents)
 
 
@@ -177,6 +179,7 @@ def _get_bootstrap_value_stateful(
     agent: StatefulAgent,
     observation: env_types.Observation,
     carries: Any,
+    key: chex.PRNGKey,
     num_envs: int,
     num_agents: int
 ) -> chex.Array:
@@ -186,6 +189,7 @@ def _get_bootstrap_value_stateful(
         agent: Stateful agent
         observation: NumPy observation (will be converted to JAX)
         carries: Batched hidden states (batch_size, *carry_shape)
+        key: Random key for stochastic operations
         num_envs: Number of environments
         num_agents: Number of agents per environment
 
@@ -202,7 +206,7 @@ def _get_bootstrap_value_stateful(
     )
 
     # Get value estimate with carries
-    value_flat, _ = agent.get_value(obs_flat, carries)
+    value_flat, _ = agent.get_value(obs_flat, carries, key)
     return value_flat.reshape(num_envs, num_agents)
 
 
@@ -324,13 +328,14 @@ def collect_trajectories(
         last_timestep = new_timestep
 
     # Compute bootstrap value for GAE (value of the next state after rollout) - JIT-compiled
+    key, bootstrap_key = jax.random.split(key)
     if is_stateful:
         next_value = _get_bootstrap_value_stateful(
-            agent, last_timestep.observation, carries, num_envs, num_agents
+            agent, last_timestep.observation, carries, bootstrap_key, num_envs, num_agents
         )
     else:
         next_value = _get_bootstrap_value_stateless(
-            agent, last_timestep.observation, num_envs, num_agents
+            agent, last_timestep.observation, bootstrap_key, num_envs, num_agents
         )
 
     # Only use terminated for bootstrap - if truncated, we still want to bootstrap
